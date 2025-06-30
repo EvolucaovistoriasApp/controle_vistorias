@@ -1055,7 +1055,19 @@ export const tiposConsumoService = {
 export const vistoriasService = {
   async listarVistorias(usuarioId) {
     try {
-      const { data, error } = await supabase
+      // 🆕 Primeiro, verificar o tipo de usuário
+      const { data: usuario, error: usuarioError } = await supabase
+        .from('usuarios')
+        .select('tipo_usuario')
+        .eq('id', usuarioId)
+        .single()
+
+      if (usuarioError) {
+        console.error('Erro ao buscar usuário:', usuarioError)
+        return { success: false, error: 'Erro ao verificar usuário' }
+      }
+
+      let query = supabase
         .from('vistorias')
         .select(`
           *,
@@ -1065,9 +1077,30 @@ export const vistoriasService = {
           tipos_vistorias:tipo_vistoria_id(id, nome),
           tipos_mobilia:tipo_mobilia_id(id, nome)
         `)
-        .eq('usuario_id', usuarioId)
         .eq('ativo', true)
         .order('created_at', { ascending: false })
+
+      // 🆕 Se for vistoriador, buscar pela referência ao vistoriador
+      if (usuario.tipo_usuario === 'vistoriador') {
+        // Primeiro buscar o ID do vistoriador associado a este usuário
+        const { data: vistoriador, error: vistoriadorError } = await supabase
+          .from('vistoriadores')
+          .select('id')
+          .eq('usuario_id', usuarioId)
+          .single()
+
+        if (vistoriadorError) {
+          console.error('Erro ao buscar vistoriador:', vistoriadorError)
+          return { success: false, error: 'Vistoriador não encontrado' }
+        }
+
+        query = query.eq('vistoriador_id', vistoriador.id)
+      } else {
+        // Para admin, buscar por usuario_id (quem criou)
+        query = query.eq('usuario_id', usuarioId)
+      }
+
+      const { data, error } = await query
 
       if (error) {
         console.error('Erro ao listar vistorias:', error)

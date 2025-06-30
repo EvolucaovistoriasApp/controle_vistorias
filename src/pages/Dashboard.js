@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Alert, Spinner } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Alert, Spinner, Nav, Tab } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers } from '@fortawesome/free-solid-svg-icons';
 import DashboardLayout from '../components/DashboardLayout';
 import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService } from '../lib/supabase';
 
@@ -15,9 +15,11 @@ const ValorMonetarioVistoria = ({ vistoria }) => {
       try {
         setLoading(true);
         
+        let valorBase = 0;
+        
         // Se a vistoria já tem valor_monetario salvo, usar esse valor
         if (vistoria.valor_monetario && vistoria.valor_monetario > 0) {
-          setValorMonetario(parseFloat(vistoria.valor_monetario));
+          valorBase = parseFloat(vistoria.valor_monetario);
         } else {
           // Para vistorias antigas sem valor_monetario, calcular baseado no valor unitário mais recente
           const result = await creditosService.obterValorUnitarioMaisRecente(vistoria.imobiliaria_id);
@@ -28,9 +30,14 @@ const ValorMonetarioVistoria = ({ vistoria }) => {
           }
           
           const consumo = parseFloat(vistoria.consumo_calculado) || 0;
-          const valor = valorUnitario * consumo;
-          setValorMonetario(valor);
+          valorBase = valorUnitario * consumo;
         }
+        
+        // Aplicar desconto se existir
+        const desconto = parseFloat(vistoria.desconto) || 0;
+        const valorFinal = Math.max(0, valorBase - desconto);
+        
+        setValorMonetario(valorFinal);
       } catch (error) {
         console.error('Erro ao obter valor monetário:', error);
         setValorMonetario(0);
@@ -40,7 +47,7 @@ const ValorMonetarioVistoria = ({ vistoria }) => {
     };
 
     obterValor();
-  }, [vistoria.valor_monetario, vistoria.imobiliaria_id, vistoria.consumo_calculado]);
+  }, [vistoria.valor_monetario, vistoria.imobiliaria_id, vistoria.consumo_calculado, vistoria.desconto]);
 
   if (loading) {
     return <Spinner animation="border" size="sm" />;
@@ -73,18 +80,25 @@ const TotalValorVistorias = ({ vistorias }) => {
         
         // Calcular valor para cada vistoria
         for (const vistoria of vistorias) {
+          let valorBase = 0;
+          
           // Se a vistoria tem valor_monetario salvo, usar esse valor
           if (vistoria.valor_monetario && vistoria.valor_monetario > 0) {
-            total += parseFloat(vistoria.valor_monetario);
+            valorBase = parseFloat(vistoria.valor_monetario);
           } else {
             // Para vistorias antigas sem valor_monetario, calcular baseado no valor unitário mais recente
             const result = await creditosService.obterValorUnitarioMaisRecente(vistoria.imobiliaria_id);
             if (result.success) {
               const valorUnitario = result.data;
               const consumo = parseFloat(vistoria.consumo_calculado) || 0;
-              total += valorUnitario * consumo;
+              valorBase = valorUnitario * consumo;
             }
           }
+          
+          // Aplicar desconto e adicionar ao total
+          const desconto = parseFloat(vistoria.desconto) || 0;
+          const valorFinal = Math.max(0, valorBase - desconto);
+          total += valorFinal;
         }
         
         setTotalValor(total);
@@ -117,6 +131,138 @@ const TotalValorVistorias = ({ vistorias }) => {
   );
 };
 
+// 🆕 Componente para tabela de vistorias (reutilizável para admin e vistoriador)
+const TabelaVistorias = ({ 
+  vistoriasFiltradas, 
+  formatDate, 
+  handleEditarVistoria, 
+  handleConfirmarExclusao, 
+  isVistoriadorView = false 
+}) => {
+  if (vistoriasFiltradas.length === 0) {
+    return (
+      <div className="text-center py-5">
+        <FontAwesomeIcon icon={faSearch} className="text-muted fs-1 mb-3" />
+        <h5 className="text-muted">Nenhuma vistoria encontrada</h5>
+        <p className="text-muted">
+          {!isVistoriadorView ? 
+            'Clique em "Nova Vistoria" para cadastrar a primeira vistoria.' :
+            'Não há vistorias disponíveis para visualização.'
+          }
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="table-responsive">
+      <Table hover className="table-sm mb-0">
+        <thead className="table-dark">
+          <tr>
+            <th style={{ width: '6%' }}>Código</th>
+            <th style={{ width: '12%' }}>Imobiliária</th>
+            <th style={{ width: '10%' }}>Vistoriador</th>
+            <th style={{ width: '8%' }}>Data</th>
+            <th style={{ width: '8%' }}>Tipo</th>
+            <th style={{ width: '6%' }}>Área</th>
+            <th style={{ width: '8%' }}>Mobília</th>
+            <th style={{ width: '7%', textAlign: 'center' }}>Consumo</th>
+            <th style={{ width: '18%' }}>Endereço</th>
+            <th style={{ width: '9%' }}>Valor</th>
+            <th style={{ width: '8%' }}>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {vistoriasFiltradas.map((vistoria) => (
+            <tr key={vistoria.id}>
+              <td className="text-nowrap">
+                <strong className="text-primary" style={{ fontSize: '0.9em' }}>
+                  {vistoria.codigo}
+                </strong>
+                {vistoria.is_express && (
+                  <Badge bg="warning" size="sm" className="ms-1">
+                    <FontAwesomeIcon icon={faBolt} />
+                  </Badge>
+                )}
+              </td>
+              <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
+                {vistoria.imobiliarias?.nome || 'N/A'}
+              </td>
+              <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
+                {vistoria.vistoriadores?.nome ? 
+                  vistoria.vistoriadores.nome.split(' ')[0] + ' ' + (vistoria.vistoriadores.nome.split(' ')[1] || '') : 
+                  'N/A'
+                }
+              </td>
+              <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
+                {formatDate(vistoria.data_vistoria)}
+              </td>
+              <td className="text-nowrap" style={{ fontSize: '0.85em' }}>
+                {vistoria.tipos_imoveis?.nome || 'N/A'}
+              </td>
+              <td className="text-nowrap text-center" style={{ fontSize: '0.9em' }}>
+                {vistoria.area_imovel}m²
+              </td>
+              <td className="text-nowrap" style={{ fontSize: '0.85em' }}>
+                {vistoria.tipos_mobilia?.nome || 'N/A'}
+              </td>
+              <td className="text-nowrap text-center" style={{ fontSize: '0.9em' }}>
+                <strong>{parseFloat(vistoria.consumo_calculado).toFixed(1)}</strong>
+              </td>
+              <td 
+                className="text-truncate" 
+                style={{ 
+                  maxWidth: '150px',
+                  fontSize: '0.85em' 
+                }}
+                title={vistoria.endereco}
+              >
+                {vistoria.endereco}
+              </td>
+              <td className="text-nowrap">
+                <ValorMonetarioVistoria vistoria={vistoria} />
+              </td>
+              <td className="text-nowrap">
+                                 <Button 
+                   variant="outline-warning" 
+                   size="sm" 
+                   className="me-1 btn-sm"
+                   title="Editar vistoria"
+                   style={{ padding: '0.2rem 0.4rem' }}
+                   onClick={() => handleEditarVistoria(vistoria, isVistoriadorView)}
+                 >
+                   <FontAwesomeIcon icon={faEdit} size="sm" />
+                 </Button>
+                {!isVistoriadorView && (
+                  <Button 
+                    variant="outline-danger" 
+                    size="sm"
+                    className="btn-sm"
+                    title="Excluir vistoria"
+                    style={{ padding: '0.2rem 0.4rem' }}
+                    onClick={() => handleConfirmarExclusao(vistoria)}
+                  >
+                    <FontAwesomeIcon icon={faTrash} size="sm" />
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="table-light">
+          <tr>
+            <td colSpan="9" className="text-end"><strong>Total de Valores:</strong></td>
+            <td className="text-nowrap">
+              <TotalValorVistorias vistorias={vistoriasFiltradas} />
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </Table>
+    </div>
+  );
+};
+
 const Dashboard = ({ deslogar, usuarioLogado }) => {
   // Estados para dados das vistorias
   const [vistorias, setVistorias] = useState([]);
@@ -131,6 +277,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const [loading, setLoading] = useState(true);
   const [loadingModal, setLoadingModal] = useState(false);
   const [salvandoVistoria, setSalvandoVistoria] = useState(false);
+  // 🆕 Estado para controlar a aba ativa - vistoriadores iniciam na aba vistoriador
+  const [activeTab, setActiveTab] = useState(usuarioLogado?.tipo === 'admin' ? 'administrador' : 'vistoriador');
 
   const [filtroTexto, setFiltroTexto] = useState('');
 
@@ -147,6 +295,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     area: '',
     tipoMobiliaId: '',
     taxaDeslocamento: '',
+    desconto: '',
     isExpress: false
   });
   const [vistoriaErrors, setVistoriaErrors] = useState({});
@@ -154,6 +303,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [valorUnitarioAtual, setValorUnitarioAtual] = useState(0);
   const [vistoriaEditando, setVistoriaEditando] = useState(null);
+  const [isVistoriadorEditing, setIsVistoriadorEditing] = useState(false); // 🆕 Controla se é o vistoriador editando
   const [showConfirmExcluir, setShowConfirmExcluir] = useState(false);
   const [vistoriaParaExcluir, setVistoriaParaExcluir] = useState(null);
   const [excluindoVistoria, setExcluindoVistoria] = useState(false);
@@ -205,16 +355,21 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
   };
 
-  // Função para filtrar vistorias
+  // Função para filtrar vistorias com base no filtro de texto
+  // (O service já filtra por usuário/vistoriador)
   const vistoriasFiltradas = vistorias.filter(vistoria => {
     const textoFiltro = filtroTexto.toLowerCase();
-    return (
+    
+    // Filtro de texto apenas
+    const matchTexto = (
       vistoria.codigo.toLowerCase().includes(textoFiltro) ||
       (vistoria.imobiliarias?.nome || '').toLowerCase().includes(textoFiltro) ||
       (vistoria.vistoriadores?.nome || '').toLowerCase().includes(textoFiltro) ||
       vistoria.endereco.toLowerCase().includes(textoFiltro) ||
       (vistoria.tipos_imoveis?.nome || '').toLowerCase().includes(textoFiltro)
     );
+    
+    return matchTexto;
   });
 
   // Função para obter data atual
@@ -238,6 +393,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         dataVistoria: getCurrentDate(),
         area: '',
         tipoMobiliaId: '',
+        taxaDeslocamento: '',
+        desconto: '',
         isExpress: false
       });
       setShowNovaVistoriaModal(true);
@@ -261,6 +418,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       area: '',
       tipoMobiliaId: '',
       taxaDeslocamento: '',
+      desconto: '',
       isExpress: false
     });
     setVistoriaErrors({});
@@ -268,6 +426,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     setErrorMessage('');
     setValorUnitarioAtual(0);
     setVistoriaEditando(null); // 🆕 Limpar estado de edição
+    setIsVistoriadorEditing(false); // 🆕 Resetar estado do vistoriador
   };
 
   // Função para obter valor unitário mais recente
@@ -344,8 +503,16 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         endereco: vistoriaData.endereco.trim(),
         data_vistoria: vistoriaData.dataVistoria,
         area_imovel: parseFloat(vistoriaData.area),
-        taxa_deslocamento: parseFloat(vistoriaData.taxaDeslocamento) || 0,
-        is_express: vistoriaData.isExpress,
+        // 🆕 Se for vistoriador editando, manter valores originais dos campos restritos
+        taxa_deslocamento: isVistoriadorEditing && vistoriaEditando ? 
+          vistoriaEditando.taxa_deslocamento : 
+          (parseFloat(vistoriaData.taxaDeslocamento) || 0),
+        desconto: isVistoriadorEditing && vistoriaEditando ? 
+          vistoriaEditando.desconto : 
+          (parseFloat(vistoriaData.desconto) || 0),
+        is_express: isVistoriadorEditing && vistoriaEditando ? 
+          vistoriaEditando.is_express : 
+          vistoriaData.isExpress,
         consumo_calculado: consumoCalculado,
         valor_monetario: valorMonetario,
         status: 'pendente'
@@ -423,7 +590,11 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
 
     // Adicionar percentual se for Express
-    if (vistoriaData.isExpress) {
+    const isExpressValue = isVistoriadorEditing && vistoriaEditando ? 
+      vistoriaEditando.is_express : 
+      vistoriaData.isExpress;
+    
+    if (isExpressValue) {
       const tipoConsumo = tiposConsumo.find(tc => 
         tc.nome.toLowerCase() === 'express'
       );
@@ -433,7 +604,9 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
 
     // 🆕 Adicionar Taxa de Deslocamento (valor fixo, não multiplicado)
-    const taxaDeslocamento = parseFloat(vistoriaData.taxaDeslocamento) || 0;
+    const taxaDeslocamento = isVistoriadorEditing && vistoriaEditando ? 
+      (parseFloat(vistoriaEditando.taxa_deslocamento) || 0) : 
+      (parseFloat(vistoriaData.taxaDeslocamento) || 0);
     consumoTotal += taxaDeslocamento;
 
     return consumoTotal;
@@ -446,10 +619,11 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   };
 
   // 🆕 Função para editar vistoria
-  const handleEditarVistoria = async (vistoria) => {
+  const handleEditarVistoria = async (vistoria, isFromVistoriador = false) => {
     try {
       setLoadingModal(true);
       setVistoriaEditando(vistoria);
+      setIsVistoriadorEditing(isFromVistoriador); // 🆕 Define se é do vistoriador
 
       // Carregar valor unitário da imobiliária
       const valorUnitario = await obterValorUnitarioMaisRecente(vistoria.imobiliaria_id);
@@ -467,6 +641,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         area: vistoria.area_imovel.toString(),
         tipoMobiliaId: vistoria.tipo_mobilia_id,
         taxaDeslocamento: vistoria.taxa_deslocamento ? vistoria.taxa_deslocamento.toString() : '',
+        desconto: vistoria.desconto ? vistoria.desconto.toString() : '',
         isExpress: vistoria.is_express
       });
 
@@ -540,165 +715,132 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                   <div>
                     <h4 className="text-primary mb-1">
                       <FontAwesomeIcon icon={faPlus} className="me-2" />
-                      Dashboard de Vistorias
+                      Controle de Vistorias
                     </h4>
                     <small className="text-muted">
                       {vistoriasFiltradas.length} vistorias encontradas
                     </small>
                   </div>
-                  <Button 
-                    variant="success" 
-                    onClick={handleShowNovaVistoriaModal}
-                    disabled={loading || loadingModal}
-                    className="text-nowrap"
-                  >
-                    {loadingModal ? (
-                      <>
-                        <Spinner animation="border" size="sm" className="me-2" />
-                        Carregando...
-                      </>
-                    ) : (
-                      <>
-                        <FontAwesomeIcon icon={faPlus} className="me-2" />
-                        Nova Vistoria
-                      </>
-                    )}
-                  </Button>
                 </div>
 
-                <Row className="mb-3">
-                  <Col md={6} lg={4}>
-                    <InputGroup size="sm">
-                      <InputGroup.Text>
-                        <FontAwesomeIcon icon={faSearch} />
-                      </InputGroup.Text>
-                      <Form.Control
-                        type="text"
-                        placeholder="Filtrar vistorias..."
-                        value={filtroTexto}
-                        onChange={(e) => setFiltroTexto(e.target.value)}
-                      />
-                    </InputGroup>
-                  </Col>
-                </Row>
+                {/* 🆕 Navegação por Tabs */}
+                <Tab.Container activeKey={activeTab} onSelect={(key) => setActiveTab(key)}>
+                  <Nav variant="tabs" className="mb-3">
+                    {/* 🆕 Aba Administrador - Apenas para admins */}
+                    {usuarioLogado?.tipo === 'admin' && (
+                      <Nav.Item>
+                        <Nav.Link eventKey="administrador">
+                          <FontAwesomeIcon icon={faUserTie} className="me-2" />
+                          Dashboard Administrador
+                        </Nav.Link>
+                      </Nav.Item>
+                    )}
+                    <Nav.Item>
+                      <Nav.Link eventKey="vistoriador">
+                        <FontAwesomeIcon icon={faUsers} className="me-2" />
+                        Dashboard Vistoriador
+                      </Nav.Link>
+                    </Nav.Item>
+                  </Nav>
 
-                {/* Lista de Vistorias */}
-                {vistoriasFiltradas.length === 0 ? (
-                  <div className="text-center py-5">
-                    <FontAwesomeIcon icon={faSearch} className="text-muted fs-1 mb-3" />
-                    <h5 className="text-muted">Nenhuma vistoria encontrada</h5>
-                    <p className="text-muted">
-                      {filtroTexto ? 
-                        'Tente ajustar os filtros de busca.' : 
-                        'Clique em "Nova Vistoria" para cadastrar a primeira vistoria.'
-                      }
-                    </p>
-                  </div>
-                ) : (
-                  <div className="table-responsive">
-                    <Table hover className="table-sm mb-0">
-                      <thead className="table-dark">
-                        <tr>
-                          <th style={{ width: '6%' }}>Código</th>
-                          <th style={{ width: '12%' }}>Imobiliária</th>
-                          <th style={{ width: '10%' }}>Vistoriador</th>
-                          <th style={{ width: '8%' }}>Data</th>
-                          <th style={{ width: '8%' }}>Tipo</th>
-                          <th style={{ width: '6%' }}>Área</th>
-                          <th style={{ width: '8%' }}>Mobília</th>
-                          <th style={{ width: '7%', textAlign: 'center' }}>Consumo</th>
-                          <th style={{ width: '18%' }}>Endereço</th>
-                          <th style={{ width: '9%' }}>Valor</th>
-                          <th style={{ width: '8%' }}>Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vistoriasFiltradas.map((vistoria) => (
-                          <tr key={vistoria.id}>
-                            <td className="text-nowrap">
-                              <strong className="text-primary" style={{ fontSize: '0.9em' }}>
-                                {vistoria.codigo}
-                              </strong>
-                              {vistoria.is_express && (
-                                <Badge bg="warning" size="sm" className="ms-1">
-                                  <FontAwesomeIcon icon={faBolt} />
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
-                              {vistoria.imobiliarias?.nome || 'N/A'}
-                            </td>
-                            <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
-                              {vistoria.vistoriadores?.nome ? 
-                                vistoria.vistoriadores.nome.split(' ')[0] + ' ' + (vistoria.vistoriadores.nome.split(' ')[1] || '') : 
-                                'N/A'
-                              }
-                            </td>
-                            <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
-                              {formatDate(vistoria.data_vistoria)}
-                            </td>
-                            <td className="text-nowrap" style={{ fontSize: '0.85em' }}>
-                              {vistoria.tipos_imoveis?.nome || 'N/A'}
-                            </td>
-                            <td className="text-nowrap text-center" style={{ fontSize: '0.9em' }}>
-                              {vistoria.area_imovel}m²
-                            </td>
-                            <td className="text-nowrap" style={{ fontSize: '0.85em' }}>
-                              {vistoria.tipos_mobilia?.nome || 'N/A'}
-                            </td>
-                            <td className="text-nowrap text-center" style={{ fontSize: '0.9em' }}>
-                              <strong>{parseFloat(vistoria.consumo_calculado).toFixed(1)}</strong>
-                            </td>
-                            <td 
-                              className="text-truncate" 
-                              style={{ 
-                                maxWidth: '150px',
-                                fontSize: '0.85em' 
-                              }}
-                              title={vistoria.endereco}
-                            >
-                              {vistoria.endereco}
-                            </td>
-                            <td className="text-nowrap">
-                              <ValorMonetarioVistoria vistoria={vistoria} />
-                            </td>
-                            <td className="text-nowrap">
-                              <Button 
-                                variant="outline-warning" 
-                                size="sm" 
-                                className="me-1 btn-sm"
-                                title="Editar vistoria"
-                                style={{ padding: '0.2rem 0.4rem' }}
-                                onClick={() => handleEditarVistoria(vistoria)}
-                              >
-                                <FontAwesomeIcon icon={faEdit} size="sm" />
-                              </Button>
-                              <Button 
-                                variant="outline-danger" 
-                                size="sm"
-                                className="btn-sm"
-                                title="Excluir vistoria"
-                                style={{ padding: '0.2rem 0.4rem' }}
-                                onClick={() => handleConfirmarExclusao(vistoria)}
-                              >
-                                <FontAwesomeIcon icon={faTrash} size="sm" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="table-light">
-                        <tr>
-                          <td colSpan="9" className="text-end"><strong>Total de Valores:</strong></td>
-                          <td className="text-nowrap">
-                            <TotalValorVistorias vistorias={vistoriasFiltradas} />
-                          </td>
-                          <td></td>
-                        </tr>
-                      </tfoot>
-                    </Table>
-                  </div>
-                )}
+                  <Tab.Content>
+                    {/* Aba do Administrador - Apenas para admins */}
+                    {usuarioLogado?.tipo === 'admin' && (
+                      <Tab.Pane eventKey="administrador">
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                          <h5 className="text-primary mb-1">
+                            Dashboard de Vistorias
+                          </h5>
+                          <small className="text-muted">
+                            Gestão completa de vistorias - Criar, editar e excluir
+                          </small>
+                        </div>
+                        <Button 
+                          variant="success" 
+                          onClick={handleShowNovaVistoriaModal}
+                          disabled={loading || loadingModal}
+                          className="text-nowrap"
+                        >
+                          {loadingModal ? (
+                            <>
+                              <Spinner animation="border" size="sm" className="me-2" />
+                              Carregando...
+                            </>
+                          ) : (
+                            <>
+                              <FontAwesomeIcon icon={faPlus} className="me-2" />
+                              Nova Vistoria
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      <Row className="mb-3">
+                        <Col md={6} lg={4}>
+                          <InputGroup size="sm">
+                            <InputGroup.Text>
+                              <FontAwesomeIcon icon={faSearch} />
+                            </InputGroup.Text>
+                            <Form.Control
+                              type="text"
+                              placeholder="Filtrar vistorias..."
+                              value={filtroTexto}
+                              onChange={(e) => setFiltroTexto(e.target.value)}
+                            />
+                          </InputGroup>
+                        </Col>
+                      </Row>
+
+                      <TabelaVistorias 
+                        vistoriasFiltradas={vistoriasFiltradas} 
+                        formatDate={formatDate} 
+                        handleEditarVistoria={handleEditarVistoria} 
+                        handleConfirmarExclusao={handleConfirmarExclusao}
+                        isVistoriadorView={false}
+                      />
+                    </Tab.Pane>
+                    )}
+
+                    {/* Aba do Vistoriador */}
+                    <Tab.Pane eventKey="vistoriador">
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                          <h5 className="text-primary mb-1">
+                            Dashboard do Vistoriador
+                          </h5>
+                          <small className="text-muted">
+                            Visualização das vistorias - Apenas edição permitida
+                          </small>
+                        </div>
+                      </div>
+
+                      <Row className="mb-3">
+                        <Col md={6} lg={4}>
+                          <InputGroup size="sm">
+                            <InputGroup.Text>
+                              <FontAwesomeIcon icon={faSearch} />
+                            </InputGroup.Text>
+                            <Form.Control
+                              type="text"
+                              placeholder="Filtrar vistorias..."
+                              value={filtroTexto}
+                              onChange={(e) => setFiltroTexto(e.target.value)}
+                            />
+                          </InputGroup>
+                        </Col>
+                      </Row>
+
+                      <TabelaVistorias 
+                        vistoriasFiltradas={vistoriasFiltradas} 
+                        formatDate={formatDate} 
+                        handleEditarVistoria={handleEditarVistoria} 
+                        handleConfirmarExclusao={handleConfirmarExclusao}
+                        isVistoriadorView={true}
+                      />
+                    </Tab.Pane>
+                  </Tab.Content>
+                </Tab.Container>
               </Card.Body>
             </Card>
           </Col>
@@ -707,7 +849,12 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         {/* Modal Nova/Editar Vistoria */}
         <Modal show={showNovaVistoriaModal} onHide={handleCloseNovaVistoriaModal} size="xl">
           <Modal.Header closeButton>
-            <Modal.Title>{vistoriaEditando ? 'Editar Vistoria' : 'Nova Vistoria'}</Modal.Title>
+            <Modal.Title>
+              {vistoriaEditando ? 
+                (isVistoriadorEditing ? 'Editar Vistoria (Vistoriador)' : 'Editar Vistoria') : 
+                'Nova Vistoria'
+              }
+            </Modal.Title>
           </Modal.Header>
           <Modal.Body>
             {successMessage && (
@@ -905,7 +1052,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
               </Row>
 
               <Row>
-                <Col md={6}>
+                {/* 🆕 Taxa de Deslocamento - ReadOnly para vistoriador */}
+                <Col md={isVistoriadorEditing ? 6 : 4}>
                   <Form.Group className="mb-3">
                     <Form.Label>Taxa de Deslocamento</Form.Label>
                     <InputGroup>
@@ -917,33 +1065,71 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                         placeholder="0.00"
                         min="0"
                         step="0.01"
+                        readOnly={isVistoriadorEditing}
+                        style={isVistoriadorEditing ? { backgroundColor: '#f8f9fa', cursor: 'not-allowed' } : {}}
                       />
                       <InputGroup.Text>créditos</InputGroup.Text>
                     </InputGroup>
-                    <Form.Text className="text-muted">
-                      Valor fixo adicionado ao consumo total (não multiplicado pela área)
-                    </Form.Text>
+                    {!isVistoriadorEditing && (
+                      <Form.Text className="text-muted">
+                        Valor fixo adicionado ao consumo total (não multiplicado pela área)
+                      </Form.Text>
+                    )}
                   </Form.Group>
                 </Col>
-                <Col md={6}>
+                
+                {/* 🆕 Desconto - Oculto para vistoriador */}
+                {!isVistoriadorEditing && (
+                  <Col md={4}>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Desconto</Form.Label>
+                      <InputGroup>
+                        <InputGroup.Text>R$</InputGroup.Text>
+                        <Form.Control
+                          type="number"
+                          name="desconto"
+                          value={vistoriaData.desconto}
+                          onChange={handleVistoriaInputChange}
+                          placeholder="0,00"
+                          min="0"
+                          step="0.01"
+                        />
+                      </InputGroup>
+                      <Form.Text className="text-muted">
+                        Valor do desconto em reais aplicado ao valor final
+                      </Form.Text>
+                    </Form.Group>
+                  </Col>
+                )}
+                
+                {/* 🆕 Serviço Express - Disabled para vistoriador */}
+                <Col md={isVistoriadorEditing ? 6 : 4}>
                   <Form.Group className="mb-3">
                     <Form.Check
                       type="checkbox"
                       name="isExpress"
                       checked={vistoriaData.isExpress}
                       onChange={handleVistoriaInputChange}
+                      disabled={isVistoriadorEditing}
+                      style={isVistoriadorEditing ? { cursor: 'not-allowed' } : {}}
                       label={
-                        <span>
+                        <span style={isVistoriadorEditing ? { color: '#6c757d', cursor: 'not-allowed' } : {}}>
                           <FontAwesomeIcon icon={faBolt} className="text-warning me-1" />
                           Serviço Express
                         </span>
                       }
                     />
-                    <Form.Text className="text-muted">
-                      Marque esta opção se for um serviço com atendimento prioritário
-                    </Form.Text>
+                    {!isVistoriadorEditing && (
+                      <Form.Text className="text-muted">
+                        Marque esta opção se for um serviço com atendimento prioritário
+                      </Form.Text>
+                    )}
                   </Form.Group>
                 </Col>
+              </Row>
+              
+              <Row>
+                {/* Campo Consumo - Sempre visível */}
                 <Col md={4}>
                   <Form.Group className="mb-3">
                     <Form.Label>Consumo</Form.Label>
@@ -969,18 +1155,43 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                 <Row>
                   <Col md={12}>
                     <Alert variant="info" className="text-center">
-                      <h5 className="mb-1">
-                        <strong>Valor da Vistoria: {new Intl.NumberFormat('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL'
-                        }).format(calculateConsumo() * valorUnitarioAtual)}</strong>
-                      </h5>
-                      <small className="text-muted">
-                        {calculateConsumo().toFixed(2)} créditos × {new Intl.NumberFormat('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL'
-                        }).format(valorUnitarioAtual)} (valor unitário mais recente)
-                      </small>
+                      {(() => {
+                        const valorBase = calculateConsumo() * valorUnitarioAtual;
+                        const desconto = !isVistoriadorEditing ? (parseFloat(vistoriaData.desconto) || 0) : 0;
+                        const valorFinal = Math.max(0, valorBase - desconto);
+                        
+                        return (
+                          <>
+                            <h5 className="mb-1">
+                              <strong>Valor da Vistoria: {new Intl.NumberFormat('pt-BR', {
+                                style: 'currency',
+                                currency: 'BRL'
+                              }).format(valorFinal)}</strong>
+                            </h5>
+                            <div className="text-muted">
+                              <small>
+                                {calculateConsumo().toFixed(2)} créditos × {new Intl.NumberFormat('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                }).format(valorUnitarioAtual)} = {new Intl.NumberFormat('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL'
+                                }).format(valorBase)}
+                              </small>
+                              {!isVistoriadorEditing && desconto > 0 && (
+                                <div>
+                                  <small>
+                                    Desconto aplicado: -{new Intl.NumberFormat('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL'
+                                    }).format(desconto)}
+                                  </small>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </Alert>
                   </Col>
                 </Row>
