@@ -16,7 +16,12 @@ const Vistoriadores = ({ deslogar, usuarioLogado }) => {
   // Estados para o modal de cadastro
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [currentVistoriador, setCurrentVistoriador] = useState(null);
+  const [editData, setEditData] = useState({
+    valorUnitarioCredito: ''
+  });
+  const [editErrors, setEditErrors] = useState({});
   const [formData, setFormData] = useState({
     nome: '',
     cpf: '',
@@ -108,6 +113,76 @@ const Vistoriadores = ({ deslogar, usuarioLogado }) => {
   const handleShowViewModal = (vistoriador) => {
     setCurrentVistoriador(vistoriador);
     setShowViewModal(true);
+  };
+
+  // 🆕 Funções para manipulação do modal de edição
+  const handleCloseEditModal = () => {
+    setShowEditModal(false);
+    setEditData({ valorUnitarioCredito: '' });
+    setEditErrors({});
+  };
+
+  const handleShowEditModal = (vistoriador) => {
+    setCurrentVistoriador(vistoriador);
+    setEditData({
+      valorUnitarioCredito: vistoriador.valor_unitario_credito?.toString() || ''
+    });
+    setShowEditModal(true);
+    setShowViewModal(false);
+  };
+
+  // 🆕 Função para lidar com mudanças no formulário de edição
+  const handleEditInputChange = (e) => {
+    const { name, value } = e.target;
+    setEditData({
+      ...editData,
+      [name]: value
+    });
+  };
+
+  // 🆕 Função para salvar alterações do vistoriador
+  const handleSaveEdit = async () => {
+    try {
+      setCarregandoSalvar(true);
+      setEditErrors({});
+
+      // Validação básica
+      const valorUnitario = parseFloat(editData.valorUnitarioCredito) || 0;
+      if (valorUnitario < 0) {
+        setEditErrors({ valorUnitarioCredito: 'Valor deve ser maior ou igual a zero' });
+        return;
+      }
+
+      // Preparar dados para atualização
+      const dadosVistoriador = {
+        nome: currentVistoriador.nome,
+        cpf: currentVistoriador.cpf,
+        telefone: currentVistoriador.telefone,
+        email: currentVistoriador.email,
+        endereco: currentVistoriador.endereco,
+        dataAdmissao: currentVistoriador.data_admissao,
+        status: currentVistoriador.status,
+        valorUnitarioCredito: valorUnitario
+      };
+
+      const result = await vistoriadoresService.atualizar(currentVistoriador.id, dadosVistoriador);
+
+      if (result.success) {
+        setSuccessMessage('Valor unitário do crédito atualizado com sucesso!');
+        await carregarVistoriadores(); // Recarregar lista
+        setTimeout(() => {
+          handleCloseEditModal();
+          setSuccessMessage('');
+        }, 2000);
+      } else {
+        setEditErrors({ geral: result.error });
+      }
+    } catch (error) {
+      console.error('Erro ao salvar alterações:', error);
+      setEditErrors({ geral: 'Erro interno do servidor' });
+    } finally {
+      setCarregandoSalvar(false);
+    }
   };
 
   // Função para lidar com mudanças nos campos do formulário
@@ -697,6 +772,33 @@ const Vistoriadores = ({ deslogar, usuarioLogado }) => {
                 </Col>
               </Row>
 
+              <Row className="mb-3">
+                <Col md={12}>
+                  <Card className="border-0 bg-light">
+                    <Card.Body className="py-2">
+                      <h6 className="text-muted mb-1">Remuneração</h6>
+                      <p className="mb-0">
+                        <strong>Valor por Crédito:</strong> 
+                        <span className="text-primary ms-2">
+                          {currentVistoriador.valor_unitario_credito 
+                            ? new Intl.NumberFormat('pt-BR', {
+                                style: 'currency',
+                                currency: 'BRL'
+                              }).format(currentVistoriador.valor_unitario_credito)
+                            : 'Não definido'
+                          }
+                        </span>
+                        {!currentVistoriador.valor_unitario_credito && (
+                          <small className="text-muted ms-2">
+                            (Configure clicando em "Editar Remuneração")
+                          </small>
+                        )}
+                      </p>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              </Row>
+
               <div>
                 <h6 className="text-muted mb-2">Endereço</h6>
                 <p className="mb-0">
@@ -708,8 +810,98 @@ const Vistoriadores = ({ deslogar, usuarioLogado }) => {
           )}
         </Modal.Body>
         <Modal.Footer>
+          {usuarioLogado?.tipo === 'admin' && (
+            <Button variant="primary" onClick={() => handleShowEditModal(currentVistoriador)}>
+              <FontAwesomeIcon icon={faEdit} className="me-2" />
+              Editar Remuneração
+            </Button>
+          )}
           <Button variant="secondary" onClick={handleCloseViewModal}>
             Fechar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* 🆕 Modal para edição da remuneração do vistoriador */}
+      <Modal show={showEditModal} onHide={handleCloseEditModal}>
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <FontAwesomeIcon icon={faEdit} className="me-2" />
+            Editar Remuneração - {currentVistoriador?.nome}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {successMessage && (
+            <Alert variant="success">{successMessage}</Alert>
+          )}
+          {editErrors.geral && (
+            <Alert variant="danger">{editErrors.geral}</Alert>
+          )}
+          
+          {currentVistoriador && (
+            <Form>
+              <Alert variant="info">
+                <strong>Vistoriador:</strong> {currentVistoriador.nome}<br />
+                <strong>Status:</strong> {currentVistoriador.status}<br />
+                <small className="text-muted">
+                  Este valor será usado para calcular a remuneração do vistoriador em cada vistoria.
+                </small>
+              </Alert>
+
+              <Form.Group className="mb-3">
+                <Form.Label>Valor Unitário por Crédito (Remuneração)</Form.Label>
+                <InputGroup>
+                  <InputGroup.Text>R$</InputGroup.Text>
+                  <Form.Control
+                    type="number"
+                    name="valorUnitarioCredito"
+                    value={editData.valorUnitarioCredito}
+                    onChange={handleEditInputChange}
+                    isInvalid={!!editErrors.valorUnitarioCredito}
+                    min="0"
+                    step="0.01"
+                    placeholder="Ex: 1.00"
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {editErrors.valorUnitarioCredito}
+                  </Form.Control.Feedback>
+                </InputGroup>
+                <Form.Text className="text-muted">
+                  Valor que o vistoriador receberá por cada crédito (consumo) de vistoria realizada.
+                </Form.Text>
+              </Form.Group>
+
+              {editData.valorUnitarioCredito && parseFloat(editData.valorUnitarioCredito) > 0 && (
+                <Alert variant="primary" className="text-center">
+                  <small>
+                    <strong>Exemplo de remuneração:</strong><br />
+                    Para uma vistoria de 100 créditos = 100 × R$ {parseFloat(editData.valorUnitarioCredito).toFixed(2)} = <strong>R$ {(100 * parseFloat(editData.valorUnitarioCredito)).toFixed(2)}</strong>
+                  </small>
+                </Alert>
+              )}
+            </Form>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={handleCloseEditModal}>
+            Cancelar
+          </Button>
+          <Button 
+            variant="primary" 
+            onClick={handleSaveEdit}
+            disabled={carregandoSalvar}
+          >
+            {carregandoSalvar ? (
+              <>
+                <FontAwesomeIcon icon={faEdit} className="me-2" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <FontAwesomeIcon icon={faEdit} className="me-2" />
+                Salvar Alterações
+              </>
+            )}
           </Button>
         </Modal.Footer>
       </Modal>

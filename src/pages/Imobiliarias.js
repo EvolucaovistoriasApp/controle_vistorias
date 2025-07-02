@@ -32,7 +32,12 @@ const CreditosBadge = ({ imobiliariaId }) => {
   }
 
   return (
-    <span className={`badge ${creditos > 10 ? 'bg-success' : creditos > 5 ? 'bg-warning' : 'bg-danger'}`}>
+    <span className={`badge ${
+      creditos < 0 ? 'bg-dark text-light' : 
+      creditos > 10 ? 'bg-success' : 
+      creditos > 5 ? 'bg-warning' : 
+      'bg-danger'
+    }`}>
       {creditos.toFixed(2)}
     </span>
   );
@@ -915,9 +920,14 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
                       <div className="mb-2">
                         <FontAwesomeIcon icon={faCreditCard} className="text-success fs-2" />
                       </div>
-                                      <h2 className={`mb-1 ${resumoCreditos.creditosDisponiveis > 10 ? 'text-success' : resumoCreditos.creditosDisponiveis > 5 ? 'text-warning' : 'text-danger'}`}>
-                  {loadingCreditos ? <Spinner animation="border" size="sm" /> : resumoCreditos.creditosDisponiveis.toFixed(2)}
-                </h2>
+                      <h2 className={`mb-1 ${
+                        resumoCreditos.creditosDisponiveis < 0 ? 'text-dark fw-bold' :
+                        resumoCreditos.creditosDisponiveis > 10 ? 'text-success' : 
+                        resumoCreditos.creditosDisponiveis > 5 ? 'text-warning' : 
+                        'text-danger'
+                      }`}>
+                        {loadingCreditos ? <Spinner animation="border" size="sm" /> : resumoCreditos.creditosDisponiveis.toFixed(2)}
+                      </h2>
                       <h6 className="text-muted mb-0">Créditos Disponíveis</h6>
                     </Card.Body>
                   </Card>
@@ -1067,7 +1077,13 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
               <Alert variant="info">
                 <strong>Imobiliária:</strong> {currentImobiliaria.nome}<br />
                 <strong>Usuário:</strong> {currentImobiliaria.usuarios?.username || 'N/A'}<br />
-                                    <strong>Créditos Disponíveis:</strong> {resumoCreditos.creditosDisponiveis.toFixed(2)}
+                <strong>Créditos Disponíveis:</strong> 
+                <span className={resumoCreditos.creditosDisponiveis < 0 ? 'text-dark fw-bold' : ''}>
+                  {resumoCreditos.creditosDisponiveis.toFixed(2)}
+                </span>
+                {resumoCreditos.creditosDisponiveis < 0 && (
+                  <small className="text-muted"> (saldo negativo)</small>
+                )}
               </Alert>
               
               <Form>

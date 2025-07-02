@@ -3,7 +3,7 @@ import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Moda
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers } from '@fortawesome/free-solid-svg-icons';
 import DashboardLayout from '../components/DashboardLayout';
-import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService } from '../lib/supabase';
+import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService } from '../lib/supabase';
 
 // 🆕 Componente para exibir valor monetário da vistoria (valor fixo salvo no momento do lançamento)
 const ValorMonetarioVistoria = ({ vistoria }) => {
@@ -131,6 +131,110 @@ const TotalValorVistorias = ({ vistorias }) => {
   );
 };
 
+// 🆕 Componente para exibir valor da remuneração do vistoriador
+const ValorRemuneracaoVistoriador = ({ vistoria }) => {
+  const [valorRemuneracao, setValorRemuneracao] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const calcularRemuneracao = () => {
+      try {
+        // Usar o valor unitário salvo na vistoria (histórico congelado)
+        const valorUnitario = vistoria.valor_unitario_vistoriador || 0;
+        const consumo = parseFloat(vistoria.consumo_calculado) || 0;
+        const remuneracao = valorUnitario * consumo;
+        
+        setValorRemuneracao(remuneracao);
+      } catch (error) {
+        console.error('Erro ao calcular remuneração:', error);
+        setValorRemuneracao(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    calcularRemuneracao();
+  }, [vistoria]);
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  if (loading) {
+    return <span className="text-muted">Calculando...</span>;
+  }
+
+  if (valorRemuneracao === null || valorRemuneracao === 0) {
+    return <span className="text-muted">R$ 0,00</span>;
+  }
+
+  return (
+    <span className="text-success fw-bold">
+      {formatCurrency(valorRemuneracao)}
+    </span>
+  );
+};
+
+// 🆕 Componente para calcular o total da remuneração dos vistoriadores
+const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
+  const [totalRemuneracao, setTotalRemuneracao] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const calcularTotal = () => {
+      try {
+        let total = 0;
+        
+        vistorias.forEach(vistoria => {
+          const valorUnitario = vistoria.valor_unitario_vistoriador || 0;
+          const consumo = parseFloat(vistoria.consumo_calculado) || 0;
+          const remuneracao = valorUnitario * consumo;
+          total += remuneracao;
+        });
+        
+        setTotalRemuneracao(total);
+      } catch (error) {
+        console.error('Erro ao calcular total de remuneração:', error);
+        setTotalRemuneracao(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    calcularTotal();
+  }, [vistorias]);
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  if (loading) {
+    return (
+      <div className="text-center text-muted">
+        <Spinner animation="border" size="sm" className="me-2" />
+        Calculando remuneração...
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-end">
+      <h6 className="text-success mb-0">
+        Total de Remuneração: <strong>{formatCurrency(totalRemuneracao || 0)}</strong>
+      </h6>
+      <small className="text-muted">
+        Total que os vistoriadores receberão pelas {vistorias.length} vistorias
+      </small>
+    </div>
+  );
+};
+
 // 🆕 Componente para tabela de vistorias (reutilizável para admin e vistoriador)
 const TabelaVistorias = ({ 
   vistoriasFiltradas, 
@@ -159,17 +263,17 @@ const TabelaVistorias = ({
       <Table hover className="table-sm mb-0">
         <thead className="table-dark">
           <tr>
-            <th style={{ width: '6%' }}>Código</th>
-            <th style={{ width: '12%' }}>Imobiliária</th>
-            <th style={{ width: '10%' }}>Vistoriador</th>
-            <th style={{ width: '8%' }}>Data</th>
+            <th style={{ width: '4%' }}>Código</th>
+            <th style={{ width: '8%' }}>Imobiliária</th>
+            <th style={{ width: '7%' }}>Vistoriador</th>
+            <th style={{ width: '6%' }}>Data</th>
             <th style={{ width: '8%' }}>Tipo</th>
             <th style={{ width: '6%' }}>Área</th>
-            <th style={{ width: '8%' }}>Mobília</th>
-            <th style={{ width: '7%', textAlign: 'center' }}>Consumo</th>
-            <th style={{ width: '18%' }}>Endereço</th>
-            <th style={{ width: '9%' }}>Valor</th>
-            <th style={{ width: '8%' }}>Ações</th>
+            <th style={{ width: '6%' }}>Mobília</th>
+            <th style={{ width: '5%', textAlign: 'center' }}>Consumo</th>
+            <th style={{ width: '37%' }}>Endereço</th>
+            <th style={{ width: '7%' }}>Valor</th>
+            <th style={{ width: '6%' }}>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -200,7 +304,7 @@ const TabelaVistorias = ({
               <td className="text-nowrap" style={{ fontSize: '0.85em' }}>
                 {vistoria.tipos_imoveis?.nome || 'N/A'}
               </td>
-              <td className="text-nowrap text-center" style={{ fontSize: '0.9em' }}>
+              <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
                 {vistoria.area_imovel}m²
               </td>
               <td className="text-nowrap" style={{ fontSize: '0.85em' }}>
@@ -212,7 +316,7 @@ const TabelaVistorias = ({
               <td 
                 className="text-truncate" 
                 style={{ 
-                  maxWidth: '150px',
+                  maxWidth: '300px',
                   fontSize: '0.85em' 
                 }}
                 title={vistoria.endereco}
@@ -220,7 +324,11 @@ const TabelaVistorias = ({
                 {vistoria.endereco}
               </td>
               <td className="text-nowrap">
-                <ValorMonetarioVistoria vistoria={vistoria} />
+                {isVistoriadorView ? (
+                  <ValorRemuneracaoVistoriador vistoria={vistoria} />
+                ) : (
+                  <ValorMonetarioVistoria vistoria={vistoria} />
+                )}
               </td>
               <td className="text-nowrap">
                                  <Button 
@@ -251,9 +359,15 @@ const TabelaVistorias = ({
         </tbody>
         <tfoot className="table-light">
           <tr>
-            <td colSpan="9" className="text-end"><strong>Total de Valores:</strong></td>
+            <td colSpan="9" className="text-end">
+              <strong>{isVistoriadorView ? 'Total de Remuneração:' : 'Total de Valores:'}</strong>
+            </td>
             <td className="text-nowrap">
-              <TotalValorVistorias vistorias={vistoriasFiltradas} />
+              {isVistoriadorView ? (
+                <TotalRemuneracaoVistoriadores vistorias={vistoriasFiltradas} />
+              ) : (
+                <TotalValorVistorias vistorias={vistoriasFiltradas} />
+              )}
             </td>
             <td></td>
           </tr>
@@ -302,6 +416,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [valorUnitarioAtual, setValorUnitarioAtual] = useState(0);
+  // 🆕 Estado para armazenar créditos disponíveis da imobiliária selecionada
+  const [creditosDisponiveis, setCreditosDisponiveis] = useState(0);
   const [vistoriaEditando, setVistoriaEditando] = useState(null);
   const [isVistoriadorEditing, setIsVistoriadorEditing] = useState(false); // 🆕 Controla se é o vistoriador editando
   const [showConfirmExcluir, setShowConfirmExcluir] = useState(false);
@@ -310,8 +426,11 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
 
   // Carregamento de dados do Supabase
   useEffect(() => {
-    carregarDadosReaisDoSupabase();
-  }, []);
+    if (usuarioLogado) {
+      carregarDadosReaisDoSupabase();
+      inicializarSistemaRemuneracao(); // 🆕 Inicializar sistema de remuneração
+    }
+  }, [usuarioLogado]);
 
   const carregarDadosReaisDoSupabase = async () => {
     try {
@@ -352,6 +471,16 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Função para inicializar sistema de remuneração (executar apenas uma vez)
+  const inicializarSistemaRemuneracao = async () => {
+    try {
+      const result = await migrationService.adicionarColunasRemuneracao();
+      console.log('Sistema de remuneração inicializado:', result);
+    } catch (error) {
+      console.error('Erro ao inicializar sistema de remuneração:', error);
     }
   };
 
@@ -425,8 +554,9 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     setSuccessMessage('');
     setErrorMessage('');
     setValorUnitarioAtual(0);
-    setVistoriaEditando(null); // 🆕 Limpar estado de edição
-    setIsVistoriadorEditing(false); // 🆕 Resetar estado do vistoriador
+    setCreditosDisponiveis(0);
+    setVistoriaEditando(null);
+    setIsVistoriadorEditing(false);
   };
 
   // Função para obter valor unitário mais recente
@@ -443,6 +573,20 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
   };
 
+  // 🆕 Função para obter créditos disponíveis da imobiliária
+  const obterCreditosDisponiveis = async (imobiliariaId) => {
+    try {
+      const result = await creditosService.obterResumoCreditos(imobiliariaId);
+      if (result.success) {
+        return result.data.creditosDisponiveis;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Erro ao obter créditos:', error);
+      return 0;
+    }
+  };
+
   // Função para lidar com mudanças no formulário
   const handleVistoriaInputChange = async (e) => {
     const { name, value, type, checked } = e.target;
@@ -451,14 +595,19 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       [name]: type === 'checkbox' ? checked : value
     });
 
-    // Quando selecionar uma imobiliária, carregar o valor unitário mais recente
+    // Quando selecionar uma imobiliária, carregar o valor unitário mais recente e créditos disponíveis
     if (name === 'imobiliariaId' && value) {
       try {
-        const valorUnitario = await obterValorUnitarioMaisRecente(value);
+        const [valorUnitario, creditos] = await Promise.all([
+          obterValorUnitarioMaisRecente(value),
+          obterCreditosDisponiveis(value)
+        ]);
         setValorUnitarioAtual(valorUnitario);
+        setCreditosDisponiveis(creditos);
       } catch (error) {
-        console.error('Erro ao carregar valor unitário:', error);
+        console.error('Erro ao carregar dados da imobiliária:', error);
         setValorUnitarioAtual(0);
+        setCreditosDisponiveis(0);
       }
     }
   };
@@ -537,7 +686,13 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         if (result.success) {
           setVistorias([result.data, ...vistorias]);
           const creditosDebitados = parseFloat(calculateConsumo().toFixed(2));
-          setSuccessMessage(`Vistoria cadastrada com sucesso! ${creditosDebitados} créditos foram debitados da imobiliária.`);
+          
+          // 🆕 Verificar se os créditos eram insuficientes e mostrar mensagem apropriada
+          if (result.creditosInsuficientes) {
+            setSuccessMessage(`⚠️ Vistoria cadastrada com créditos insuficientes! ${creditosDebitados} créditos foram debitados da imobiliária. Saldo atual: ${result.novoSaldo.toFixed(2)} créditos.`);
+          } else {
+            setSuccessMessage(`Vistoria cadastrada com sucesso! ${creditosDebitados} créditos foram debitados da imobiliária.`);
+          }
         }
       }
       
@@ -909,6 +1064,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                       value={vistoriaData.imobiliariaId}
                       onChange={handleVistoriaInputChange}
                       isInvalid={!!vistoriaErrors.imobiliariaId}
+                      disabled={isVistoriadorEditing}
+                      style={isVistoriadorEditing ? { cursor: 'not-allowed' } : {}}
                     >
                       <option value="">Selecione uma imobiliária</option>
                       {imobiliarias.map(imobiliaria => (
@@ -930,6 +1087,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                       value={vistoriaData.vistoriadorId}
                       onChange={handleVistoriaInputChange}
                       isInvalid={!!vistoriaErrors.vistoriadorId}
+                      disabled={isVistoriadorEditing}
+                      style={isVistoriadorEditing ? { cursor: 'not-allowed' } : {}}
                     >
                       <option value="">Selecione um vistoriador</option>
                       {vistoriadores.map(vistoriador => (
@@ -1156,42 +1315,98 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                   <Col md={12}>
                     <Alert variant="info" className="text-center">
                       {(() => {
-                        const valorBase = calculateConsumo() * valorUnitarioAtual;
-                        const desconto = !isVistoriadorEditing ? (parseFloat(vistoriaData.desconto) || 0) : 0;
-                        const valorFinal = Math.max(0, valorBase - desconto);
-                        
-                        return (
-                          <>
-                            <h5 className="mb-1">
-                              <strong>Valor da Vistoria: {new Intl.NumberFormat('pt-BR', {
-                                style: 'currency',
-                                currency: 'BRL'
-                              }).format(valorFinal)}</strong>
-                            </h5>
-                            <div className="text-muted">
-                              <small>
-                                {calculateConsumo().toFixed(2)} créditos × {new Intl.NumberFormat('pt-BR', {
+                        if (isVistoriadorEditing) {
+                          // 🆕 Mostrar remuneração do vistoriador
+                          const valorUnitarioVistoriador = vistoriaEditando?.valor_unitario_vistoriador || 0;
+                          const remuneracao = calculateConsumo() * valorUnitarioVistoriador;
+                          
+                          return (
+                            <>
+                              <h5 className="mb-1 text-success">
+                                <strong>Sua Remuneração: {new Intl.NumberFormat('pt-BR', {
                                   style: 'currency',
                                   currency: 'BRL'
-                                }).format(valorUnitarioAtual)} = {new Intl.NumberFormat('pt-BR', {
+                                }).format(remuneracao)}</strong>
+                              </h5>
+                              <div className="text-muted">
+                                <small>
+                                  {calculateConsumo().toFixed(2)} créditos × {new Intl.NumberFormat('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL'
+                                  }).format(valorUnitarioVistoriador)} = {new Intl.NumberFormat('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL'
+                                  }).format(remuneracao)}
+                                </small>
+                              </div>
+                            </>
+                          );
+                        } else {
+                          // Mostrar valor da vistoria para a imobiliária (admin)
+                          const valorBase = calculateConsumo() * valorUnitarioAtual;
+                          const desconto = parseFloat(vistoriaData.desconto) || 0;
+                          const valorFinal = Math.max(0, valorBase - desconto);
+                          
+                          return (
+                            <>
+                              <h5 className="mb-1">
+                                <strong>Valor da Vistoria: {new Intl.NumberFormat('pt-BR', {
                                   style: 'currency',
                                   currency: 'BRL'
-                                }).format(valorBase)}
-                              </small>
-                              {!isVistoriadorEditing && desconto > 0 && (
-                                <div>
-                                  <small>
-                                    Desconto aplicado: -{new Intl.NumberFormat('pt-BR', {
-                                      style: 'currency',
-                                      currency: 'BRL'
-                                    }).format(desconto)}
-                                  </small>
-                                </div>
-                              )}
-                            </div>
-                          </>
-                        );
+                                }).format(valorFinal)}</strong>
+                              </h5>
+                              <div className="text-muted">
+                                <small>
+                                  {calculateConsumo().toFixed(2)} créditos × {new Intl.NumberFormat('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL'
+                                  }).format(valorUnitarioAtual)} = {new Intl.NumberFormat('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL'
+                                  }).format(valorBase)}
+                                </small>
+                                {desconto > 0 && (
+                                  <div>
+                                    <small>
+                                      Desconto aplicado: -{new Intl.NumberFormat('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL'
+                                      }).format(desconto)}
+                                    </small>
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          );
+                        }
                       })()}
+                    </Alert>
+                  </Col>
+                </Row>
+              )}
+
+              {/* 🆕 Alerta de créditos insuficientes */}
+              {vistoriaData.imobiliariaId && valorUnitarioAtual > 0 && creditosDisponiveis < calculateConsumo() && !isVistoriadorEditing && (
+                <Row>
+                  <Col md={12}>
+                    <Alert variant="danger" className="text-center">
+                      <strong>⚠️ Créditos insuficientes!</strong>
+                      <br />
+                      <div className="mt-2">
+                        <small>
+                          <strong>Créditos disponíveis:</strong> {creditosDisponiveis.toFixed(2)} créditos
+                          <br />
+                          <strong>Créditos necessários:</strong> {calculateConsumo().toFixed(2)} créditos
+                          <br />
+                          <strong>Saldo após vistoria:</strong> {(creditosDisponiveis - calculateConsumo()).toFixed(2)} créditos
+                        </small>
+                      </div>
+                      <div className="mt-2">
+                        <small className="text-muted">
+                          Esta vistoria pode ser lançada mesmo com créditos insuficientes. 
+                          O saldo da imobiliária ficará negativo.
+                        </small>
+                      </div>
                     </Alert>
                   </Col>
                 </Row>

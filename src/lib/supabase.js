@@ -167,6 +167,45 @@ export const vistoriadoresService = {
       console.error('Erro ao criar vistoriador:', error)
       return { success: false, error: 'Erro interno do servidor' }
     }
+  },
+
+  // 🆕 Atualizar vistoriador existente (incluindo valor unitário do crédito)
+  async atualizar(id, dadosVistoriador) {
+    try {
+      const { data, error } = await supabase
+        .from('vistoriadores')
+        .update({
+          nome: dadosVistoriador.nome,
+          cpf: dadosVistoriador.cpf,
+          telefone: dadosVistoriador.telefone,
+          email: dadosVistoriador.email,
+          endereco: dadosVistoriador.endereco,
+          data_admissao: dadosVistoriador.dataAdmissao,
+          status: dadosVistoriador.status,
+          valor_unitario_credito: dadosVistoriador.valorUnitarioCredito // 🆕 Campo para remuneração
+        })
+        .eq('id', id)
+        .select(`
+          *,
+          usuarios (
+            id,
+            username,
+            nome_completo,
+            ativo
+          )
+        `)
+        .single()
+      
+      if (error) {
+        console.error('Erro ao atualizar vistoriador:', error)
+        return { success: false, error: 'Erro ao atualizar vistoriador: ' + error.message }
+      }
+      
+      return { success: true, data }
+    } catch (error) {
+      console.error('Erro ao atualizar vistoriador:', error)
+      return { success: false, error: 'Erro interno do servidor' }
+    }
   }
 }
 
@@ -435,9 +474,11 @@ export const creditosService = {
 
       const creditosDisponiveis = resumoResult.data.creditosDisponiveis
 
-      if (creditosDisponiveis < quantidade) {
-        console.log(`❌ Créditos insuficientes: Disponível=${creditosDisponiveis}, Necessário=${quantidade}`)
-        return { success: false, error: 'Créditos insuficientes' }
+      // 🆕 Verificar se os créditos são insuficientes, mas permitir continuar
+      const creditosInsuficientes = creditosDisponiveis < quantidade
+
+      if (creditosInsuficientes) {
+        console.log(`⚠️ Créditos insuficientes: Disponível=${creditosDisponiveis}, Necessário=${quantidade} - Permitindo saldo negativo`)
       }
 
       // Vamos criar uma abordagem mais simples: atualizar a tabela imobiliarias com o campo creditos_gastos
@@ -470,7 +511,15 @@ export const creditosService = {
       }
 
       console.log(`✅ ${quantidade} créditos debitados da imobiliária ${imobiliariaId}`)
-      return { success: true, data }
+      
+      // 🆕 Retornar sucesso, mas indicar se os créditos eram insuficientes
+      return { 
+        success: true, 
+        data,
+        creditosInsuficientes,
+        creditosDisponiveis,
+        novoSaldo: creditosDisponiveis - quantidade
+      }
     } catch (error) {
       console.error('Erro ao debitar créditos:', error)
       return { success: false, error: 'Erro interno do servidor' }
@@ -1116,6 +1165,24 @@ export const vistoriasService = {
 
   async criarVistoria(dadosVistoria) {
     try {
+      // 🆕 Primeiro, obter o valor unitário atual do vistoriador
+      const { data: vistoriador, error: vistoriadorError } = await supabase
+        .from('vistoriadores')
+        .select('valor_unitario_credito')
+        .eq('id', dadosVistoria.vistoriador_id)
+        .single()
+
+      if (vistoriadorError) {
+        console.error('Erro ao buscar vistoriador:', vistoriadorError)
+        return { success: false, error: 'Erro ao buscar dados do vistoriador' }
+      }
+
+      // Adicionar o valor unitário do vistoriador aos dados da vistoria (para histórico)
+      const dadosVistoriaCompletos = {
+        ...dadosVistoria,
+        valor_unitario_vistoriador: vistoriador.valor_unitario_credito || 0 // 🆕 Salvar valor atual
+      }
+
       // Primeiro, debitar os créditos da imobiliária (usando valor exato sem arredondamento)
       const consumoCreditos = parseFloat(dadosVistoria.consumo_calculado)
       const debitoResult = await creditosService.debitarCreditos(
@@ -1130,7 +1197,7 @@ export const vistoriasService = {
       // Se o débito foi bem-sucedido, criar a vistoria
       const { data, error } = await supabase
         .from('vistorias')
-        .insert([dadosVistoria])
+        .insert([dadosVistoriaCompletos])
         .select(`
           *,
           imobiliarias:imobiliaria_id(id, nome),
@@ -1158,7 +1225,15 @@ export const vistoriasService = {
       }
 
       console.log(`✅ Vistoria criada e ${consumoCreditos} créditos debitados da imobiliária`)
-      return { success: true, data }
+      
+      // 🆕 Incluir informações sobre créditos insuficientes na resposta
+      return { 
+        success: true, 
+        data,
+        creditosInsuficientes: debitoResult.creditosInsuficientes,
+        creditosDisponiveis: debitoResult.creditosDisponiveis,
+        novoSaldo: debitoResult.novoSaldo
+      }
     } catch (error) {
       console.error('Erro ao criar vistoria:', error)
       return { success: false, error: 'Erro interno do servidor' }
@@ -1270,3 +1345,38 @@ export const vistoriasService = {
     }
   }
 }
+
+// 🆕 Service para executar migrações (uso interno)
+export const migrationService = {
+  // 🆕 Migração específica para adicionar colunas do sistema de remuneração
+  async adicionarColunasRemuneracao() {
+    try {
+      console.log('🔄 Iniciando migração para sistema de remuneração...')
+      
+      // Como não temos RPC disponível, vamos apenas logar as instruções SQL
+      const sqlInstructions = [
+        `-- Adicionar coluna valor_unitario_credito na tabela vistoriadores
+        ALTER TABLE vistoriadores 
+        ADD COLUMN IF NOT EXISTS valor_unitario_credito DECIMAL(10,2) DEFAULT 0.00;`,
+        
+        `-- Adicionar coluna valor_unitario_vistoriador na tabela vistorias
+        ALTER TABLE vistorias 
+        ADD COLUMN IF NOT EXISTS valor_unitario_vistoriador DECIMAL(10,2) DEFAULT 0.00;`
+      ]
+      
+      console.log('📋 Execute os seguintes comandos SQL no seu banco de dados:')
+      sqlInstructions.forEach((sql, index) => {
+        console.log(`\n${index + 1}. ${sql}`)
+      })
+      
+      // Para este projeto, vamos assumir que as colunas já existem ou foram adicionadas manualmente
+      console.log('✅ Instruções de migração geradas. Execute os comandos SQL acima no seu banco.')
+      return { success: true, message: 'Instruções de migração geradas' }
+    } catch (error) {
+      console.error('Erro na migração:', error)
+      return { success: false, error: 'Erro ao executar migração' }
+    }
+  }
+}
+
+export default supabase
