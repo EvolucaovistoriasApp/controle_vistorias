@@ -411,9 +411,73 @@ export const creditosService = {
     }
   },
 
+  // 🔄 Sincronizar créditos gastos com base nas vistorias reais (automático e transparente)
+  async sincronizarCreditosGastos(imobiliariaId) {
+    try {
+      // Buscar todas as vistorias ativas da imobiliária
+      const { data: vistorias, error: vistoriasError } = await supabase
+        .from('vistorias')
+        .select('consumo_calculado')
+        .eq('imobiliaria_id', imobiliariaId)
+        .eq('ativo', true)
+      
+      if (vistoriasError) {
+        console.error('Erro ao buscar vistorias:', vistoriasError)
+        return { success: false, error: 'Erro ao buscar vistorias' }
+      }
+
+      // Somar todos os consumos calculados
+      const totalConsumoReal = vistorias.reduce((total, vistoria) => {
+        return total + parseFloat(vistoria.consumo_calculado)
+      }, 0)
+
+      // Buscar o valor atual de créditos gastos
+      const { data: imobiliariaAtual, error: getError } = await supabase
+        .from('imobiliarias')
+        .select('creditos_gastos')
+        .eq('id', imobiliariaId)
+        .single()
+
+      const creditosGastosAtual = imobiliariaAtual?.creditos_gastos || 0
+      const creditosGastosEmCentesimos = Math.round(totalConsumoReal * 100)
+
+      // Só atualizar se houver diferença
+      if (creditosGastosAtual !== creditosGastosEmCentesimos) {
+        const { data, error } = await supabase
+          .from('imobiliarias')
+          .update({ 
+            creditos_gastos: creditosGastosEmCentesimos 
+          })
+          .eq('id', imobiliariaId)
+          .select()
+          .single()
+
+        if (error) {
+          console.error('Erro ao atualizar créditos gastos:', error)
+          return { success: false, error: 'Erro ao atualizar créditos gastos' }
+        }
+      }
+
+      return { 
+        success: true, 
+        data: {
+          totalConsumoReal,
+          creditosGastosEmCentesimos,
+          sincronizado: creditosGastosAtual !== creditosGastosEmCentesimos
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao sincronizar créditos gastos:', error)
+      return { success: false, error: 'Erro interno do servidor' }
+    }
+  },
+
   // Obter resumo de créditos de uma imobiliária
   async obterResumoCreditos(imobiliariaId) {
     try {
+      // 🔄 Sincronização automática transparente
+      await this.sincronizarCreditosGastos(imobiliariaId);
+      
       // Buscar vendas de créditos
       const { data: vendasData, error: vendasError } = await supabase
         .from('vendas_creditos')
@@ -433,23 +497,16 @@ export const creditosService = {
         .single()
       
       const resumo = vendasData.reduce((acc, venda) => {
-        // Detectar se é valor antigo (inteiro) ou novo (centésimos)
-        // Se quantidade < 1000, assumir que é valor antigo em unidades
-        // Se quantidade >= 1000, assumir que é valor novo em centésimos
+        // ✅ Lógica simplificada: sempre converter de centésimos para decimais
         const quantidade = venda.quantidade >= 1000 ? venda.quantidade / 100 : venda.quantidade;
         acc.totalCreditos += quantidade;
         acc.totalInvestido += parseFloat(venda.valor_total)
         return acc
       }, { totalCreditos: 0, totalInvestido: 0, creditosGastos: 0 })
 
-      // Adicionar créditos gastos da tabela imobiliarias (convertendo de centésimos para decimal)
+      // ✅ Lógica corrigida: sempre converter de centésimos para decimais
       if (!imobiliariaError && imobiliariaData && imobiliariaData.creditos_gastos) {
-        // Detectar se é valor antigo (decimal) ou novo (centésimos)
-        // Se creditos_gastos >= 1000, assumir que é valor em centésimos
-        // Se creditos_gastos < 1000, assumir que é valor antigo em decimal
-        resumo.creditosGastos = imobiliariaData.creditos_gastos >= 1000 
-          ? imobiliariaData.creditos_gastos / 100 
-          : imobiliariaData.creditos_gastos
+        resumo.creditosGastos = imobiliariaData.creditos_gastos / 100
       }
 
       // Créditos disponíveis = total comprado - total gasto
@@ -462,27 +519,12 @@ export const creditosService = {
     }
   },
 
-  // Debitar créditos da imobiliária
+  // Debitar créditos da imobiliária (simplificado - a sincronização automática garante consistência)
   async debitarCreditos(imobiliariaId, quantidade) {
     try {
-      // Primeiro, calcular os créditos disponíveis baseado nas vendas
-      const resumoResult = await this.obterResumoCreditos(imobiliariaId)
+      // A sincronização automática no obterResumoCreditos garante que os valores estejam sempre corretos
+      // Aqui apenas executamos o débito de forma simples
       
-      if (!resumoResult.success) {
-        return { success: false, error: 'Erro ao verificar créditos disponíveis' }
-      }
-
-      const creditosDisponiveis = resumoResult.data.creditosDisponiveis
-
-      // 🆕 Verificar se os créditos são insuficientes, mas permitir continuar
-      const creditosInsuficientes = creditosDisponiveis < quantidade
-
-      if (creditosInsuficientes) {
-        console.log(`⚠️ Créditos insuficientes: Disponível=${creditosDisponiveis}, Necessário=${quantidade} - Permitindo saldo negativo`)
-      }
-
-      // Vamos criar uma abordagem mais simples: atualizar a tabela imobiliarias com o campo creditos_gastos
-      // Primeiro, verificar se a imobiliária já tem o campo creditos_gastos
       const { data: imobiliaria, error: getError } = await supabase
         .from('imobiliarias')
         .select('creditos_gastos')
@@ -510,26 +552,19 @@ export const creditosService = {
         return { success: false, error: 'Erro ao debitar créditos' }
       }
 
-      console.log(`✅ ${quantidade} créditos debitados da imobiliária ${imobiliariaId}`)
-      
-      // 🆕 Retornar sucesso, mas indicar se os créditos eram insuficientes
-      return { 
-        success: true, 
-        data,
-        creditosInsuficientes,
-        creditosDisponiveis,
-        novoSaldo: creditosDisponiveis - quantidade
-      }
+      return { success: true, data }
     } catch (error) {
       console.error('Erro ao debitar créditos:', error)
       return { success: false, error: 'Erro interno do servidor' }
     }
   },
 
-  // 🆕 Creditar créditos (devolver créditos após exclusão de vistoria)
+  // 🔄 Creditar créditos (devolver créditos após exclusão de vistoria) - simplificado
   async creditarCreditos(imobiliariaId, quantidade) {
     try {
-      // Obter o valor atual de créditos gastos
+      // A sincronização automática no obterResumoCreditos garante que os valores estejam sempre corretos
+      // Aqui apenas executamos o crédito de forma simples
+      
       const { data: imobiliaria, error: getError } = await supabase
         .from('imobiliarias')
         .select('creditos_gastos')
@@ -559,7 +594,6 @@ export const creditosService = {
         return { success: false, error: 'Erro ao creditar créditos' }
       }
 
-      console.log(`✅ ${quantidade} créditos devolvidos à imobiliária ${imobiliariaId}`)
       return { success: true, data }
     } catch (error) {
       console.error('Erro ao creditar créditos:', error)

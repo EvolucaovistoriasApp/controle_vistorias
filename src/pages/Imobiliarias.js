@@ -5,7 +5,7 @@ import { faPlus, faEdit, faEye, faCreditCard, faTrash, faEyeSlash, faUser } from
 import DashboardLayout from '../components/DashboardLayout';
 import { imobiliariasService, creditosService } from '../lib/supabase';
 
-// Componente para mostrar badge de créditos
+// Componente para mostrar badge de créditos (com sincronização automática transparente)
 const CreditosBadge = ({ imobiliariaId }) => {
   const [creditos, setCreditos] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -13,6 +13,7 @@ const CreditosBadge = ({ imobiliariaId }) => {
   useEffect(() => {
     const carregarCreditos = async () => {
       try {
+        // A função obterResumoCreditos já faz sincronização automática
         const result = await creditosService.obterResumoCreditos(imobiliariaId);
         if (result.success) {
           setCreditos(result.data.creditosDisponiveis);
@@ -624,6 +625,11 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
           {error && (
             <Alert variant="danger" className="mb-3">
               {error}
+            </Alert>
+          )}
+          {successMessage && (
+            <Alert variant="success" className="mb-3">
+              {successMessage}
             </Alert>
           )}
           
