@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Row, Col, Card, Button, Table, Modal, Form, Alert, InputGroup, Spinner } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Table, Modal, Form, Alert, InputGroup, Spinner, Nav, Tab } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faEdit, faEye, faCreditCard, faTrash, faEyeSlash, faUser } from '@fortawesome/free-solid-svg-icons';
 import DashboardLayout from '../components/DashboardLayout';
-import { imobiliariasService, creditosService } from '../lib/supabase';
+import { imobiliariasService, creditosService, vistoriasService, supabase } from '../lib/supabase';
 
 // Componente para mostrar badge de créditos (com sincronização automática transparente)
 const CreditosBadge = ({ imobiliariaId }) => {
@@ -88,10 +88,24 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
   });
   const [loadingCreditos, setLoadingCreditos] = useState(false);
 
+  // Estados para aba Consumos
+  const [activeTab, setActiveTab] = useState('imobiliarias');
+  const [dadosConsumo, setDadosConsumo] = useState([]);
+  const [loadingConsumo, setLoadingConsumo] = useState(false);
+  const [mesFilter, setMesFilter] = useState('');
+  const [anoFilter, setAnoFilter] = useState(new Date().getFullYear().toString());
+
   // Carregar imobiliárias do Supabase
   useEffect(() => {
     carregarImobiliarias();
   }, []);
+
+  // Carregar dados de consumo quando a aba muda ou filtros mudam
+  useEffect(() => {
+    if (activeTab === 'consumos') {
+      carregarDadosConsumo();
+    }
+  }, [activeTab, mesFilter, anoFilter]);
 
   const carregarImobiliarias = async () => {
     try {
@@ -218,6 +232,176 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
     }
   };
 
+  // Função para carregar dados de consumo
+  const carregarDadosConsumo = async () => {
+    try {
+      setLoadingConsumo(true);
+      
+      // Obter todas as imobiliárias
+      const imobiliariasResult = await imobiliariasService.listar();
+      if (!imobiliariasResult.success) {
+        console.error('Erro ao carregar imobiliárias');
+        return;
+      }
+
+      const dadosProcessados = [];
+
+      for (const imobiliaria of imobiliariasResult.data) {
+        // Obter dados de consumo para cada imobiliária
+        const consumoData = await obterDadosConsumoImobiliaria(imobiliaria.id, mesFilter, anoFilter);
+        
+        dadosProcessados.push({
+          id: imobiliaria.id,
+          nome: imobiliaria.nome,
+          ...consumoData
+        });
+      }
+
+      setDadosConsumo(dadosProcessados);
+    } catch (error) {
+      console.error('Erro ao carregar dados de consumo:', error);
+    } finally {
+      setLoadingConsumo(false);
+    }
+  };
+
+  // Função auxiliar para calcular valor total das vistorias (o que é cobrado dos clientes)
+  const calcularValorTotalVistorias = async (vistoriasData, imobiliariaId) => {
+    try {
+      let total = 0;
+      
+      // Calcular valor para cada vistoria
+      for (const vistoria of vistoriasData) {
+        let valorBase = 0;
+        
+        // Se a vistoria tem valor_monetario salvo, usar esse valor
+        if (vistoria.valor_monetario && vistoria.valor_monetario > 0) {
+          valorBase = parseFloat(vistoria.valor_monetario);
+        } else {
+          // Para vistorias antigas sem valor_monetario, calcular baseado no valor unitário mais recente
+          const result = await creditosService.obterValorUnitarioMaisRecente(imobiliariaId);
+          if (result.success) {
+            const valorUnitario = result.data;
+            const consumo = parseFloat(vistoria.consumo_calculado) || 0;
+            valorBase = valorUnitario * consumo;
+          }
+        }
+        
+        // Aplicar desconto e adicionar ao total
+        const desconto = parseFloat(vistoria.desconto) || 0;
+        const valorFinal = Math.max(0, valorBase - desconto);
+        total += valorFinal;
+      }
+      
+      return total;
+    } catch (error) {
+      console.error('Erro ao calcular valor total das vistorias:', error);
+      return 0;
+    }
+  };
+
+  // Função auxiliar para obter dados de uma imobiliária específica
+  const obterDadosConsumoImobiliaria = async (imobiliariaId, mes, ano) => {
+    try {
+      // Obter resumo de créditos
+      const resumoResult = await creditosService.obterResumoCreditos(imobiliariaId);
+      const resumo = resumoResult.success ? resumoResult.data : {
+        creditosDisponiveis: 0,
+        creditosGastos: 0,
+        totalCreditos: 0,
+        totalInvestido: 0
+      };
+
+      // Obter dados das vistorias (com filtro de período se especificado)
+      const vistoriasData = await obterVistoriasPorPeriodo(imobiliariaId, mes, ano);
+
+      // Calcular métricas
+      const quantidadeVistorias = vistoriasData.length;
+      const consumoTotal = vistoriasData.reduce((sum, v) => sum + parseFloat(v.consumo_calculado || 0), 0);
+      const areaTotal = vistoriasData.reduce((sum, v) => sum + parseFloat(v.area_imovel || 0), 0);
+      
+      // Calcular valor total das vistorias (o que é cobrado dos clientes)
+      const valorTotalVistorias = await calcularValorTotalVistorias(vistoriasData, imobiliariaId);
+      
+      // Calcular custo de remuneração (o que é pago aos vistoriadores)
+      const custoRemuneracao = vistoriasData.reduce((sum, v) => {
+        const consumo = parseFloat(v.consumo_calculado || 0);
+        const valorUnitario = parseFloat(v.valor_unitario_vistoriador || 0);
+        return sum + (consumo * valorUnitario);
+      }, 0);
+
+      const creditoAtual = resumo.creditosDisponiveis;
+      const creditoAdquirido = resumo.totalCreditos;
+      const valorInvestido = resumo.totalInvestido;
+      // CORREÇÃO: Valor Líquido = Valor das Vistorias - Remuneração dos Vistoriadores
+      const valorLiquido = valorTotalVistorias - custoRemuneracao;
+      const percentualCredito = creditoAdquirido > 0 ? (creditoAtual / creditoAdquirido) * 100 : 0;
+
+      return {
+        consumo: consumoTotal,
+        creditoAtual,
+        quantidadeVistorias,
+        percentualCredito,
+        areaM2: areaTotal,
+        creditoAdquirido,
+        valorInvestido,
+        valorTotalVistorias,
+        valorLiquido
+      };
+    } catch (error) {
+      console.error('Erro ao obter dados da imobiliária:', error);
+      return {
+        consumo: 0,
+        creditoAtual: 0,
+        quantidadeVistorias: 0,
+        percentualCredito: 0,
+        areaM2: 0,
+        creditoAdquirido: 0,
+        valorInvestido: 0,
+        valorTotalVistorias: 0,
+        valorLiquido: 0
+      };
+    }
+  };
+
+  // Função para obter vistorias por período
+  const obterVistoriasPorPeriodo = async (imobiliariaId, mes, ano) => {
+    try {
+      // Por enquanto, vou usar uma consulta direta ao Supabase
+      // TODO: Idealmente seria melhor criar um serviço específico
+      const query = supabase
+        .from('vistorias')
+        .select('*')
+        .eq('imobiliaria_id', imobiliariaId)
+        .eq('ativo', true);
+
+      // Aplicar filtros de período se especificados
+      if (ano) {
+        const startDate = `${ano}-01-01`;
+        const endDate = `${ano}-12-31`;
+        query.gte('data_vistoria', startDate).lte('data_vistoria', endDate);
+      }
+
+      if (mes && ano) {
+        const startDate = `${ano}-${mes.padStart(2, '0')}-01`;
+        const endDate = new Date(parseInt(ano), parseInt(mes), 0).toISOString().split('T')[0];
+        query.gte('data_vistoria', startDate).lte('data_vistoria', endDate);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Erro ao buscar vistorias:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Erro ao obter vistorias por período:', error);
+      return [];
+    }
+  };
+
   // Funções para manipulação do modal de créditos
   const handleCloseCreditModal = () => {
     setShowCreditModal(false);
@@ -253,12 +437,29 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
     setCurrentImobiliaria(currentImobiliaria);
     // Detectar se é valor antigo (inteiro) ou novo (centésimos)
     const quantidade = venda.quantidade >= 1000 ? venda.quantidade / 100 : venda.quantidade;
+    
+    // Carregar pagamentos salvos ou criar um padrão se não houver
+    let pagamentos = [];
+    if (venda.pagamentos_creditos && venda.pagamentos_creditos.length > 0) {
+      // Carregar pagamentos existentes do cronograma
+      pagamentos = venda.pagamentos_creditos.map(pagamento => ({
+        dataPagamento: new Date(pagamento.data_pagamento).toISOString().split('T')[0],
+        valorPagamento: pagamento.valor_pagamento.toString()
+      }));
+    } else {
+      // Se não houver cronograma salvo, criar um pagamento padrão
+      pagamentos = [{ 
+        dataPagamento: new Date(venda.data_venda).toISOString().split('T')[0], 
+        valorPagamento: venda.valor_total.toString() 
+      }];
+    }
+    
     setCreditData({
       quantidade: quantidade.toString(),
       valorUnitario: venda.valor_unitario.toString(),
       valorTotal: parseFloat(venda.valor_total),
       dataVenda: new Date(venda.data_venda).toISOString().split('T')[0],
-      pagamentos: [{ dataPagamento: new Date(venda.data_venda).toISOString().split('T')[0], valorPagamento: venda.valor_total.toString() }]
+      pagamentos: pagamentos
     });
     setShowCreditModal(true);
     setShowViewModal(false);
@@ -556,6 +757,8 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
             valor_pagamento: parseFloat(pagamento.valorPagamento)
           }));
 
+
+
         let result;
         if (editingVenda) {
           // Atualizar venda existente
@@ -614,90 +817,206 @@ const Imobiliarias = ({ deslogar, usuarioLogado }) => {
       <Container fluid className="py-4">
         <Card>
           <Card.Header className="d-flex justify-content-between align-items-center bg-primary text-white">
-            <h5 className="mb-0">Imobiliárias</h5>
-            {usuarioLogado?.tipo === 'admin' && (
+            <h5 className="mb-0">Gestão de Imobiliárias</h5>
+            {usuarioLogado?.tipo === 'admin' && activeTab === 'imobiliarias' && (
               <Button variant="light" size="sm" onClick={handleShowModal}>
                 <FontAwesomeIcon icon={faPlus} /> Nova Imobiliária
               </Button>
             )}
           </Card.Header>
-        <Card.Body>
-          {error && (
-            <Alert variant="danger" className="mb-3">
-              {error}
-            </Alert>
-          )}
-          {successMessage && (
-            <Alert variant="success" className="mb-3">
-              {successMessage}
-            </Alert>
-          )}
-          
-          {loading ? (
-            <div className="text-center py-5">
-              <Spinner animation="border" role="status" variant="primary">
-                <span className="visually-hidden">Carregando...</span>
-              </Spinner>
-              <p className="mt-2">Carregando imobiliárias...</p>
-            </div>
-          ) : imobiliarias.length === 0 ? (
-            <Alert variant="info">
-              Nenhuma imobiliária cadastrada. Clique em "Nova Imobiliária" para adicionar.
-            </Alert>
-          ) : (
-            <Table responsive hover>
-              <thead>
-                <tr>
-                  <th>Nome</th>
-                  <th>Endereço</th>
-                  <th>Contato</th>
-                  <th>Telefone</th>
-                  <th>Créditos Disponíveis</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {imobiliarias.map((imobiliaria, index) => (
-                  <tr key={imobiliaria.id} onClick={() => handleShowViewModal(imobiliaria)} style={{ cursor: 'pointer' }}>
-                    <td><strong>{imobiliaria.nome}</strong></td>
-                    <td>{imobiliaria.endereco}</td>
-                    <td>{imobiliaria.contato}</td>
-                    <td>{imobiliaria.telefone}</td>
-                    <td>
-                      <CreditosBadge imobiliariaId={imobiliaria.id} />
-                    </td>
-                    <td>
-                      <Button 
-                        variant="outline-primary" 
-                        size="sm" 
-                        className="me-2"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleShowViewModal(imobiliaria);
-                        }}
+          <Card.Body>
+            {error && (
+              <Alert variant="danger" className="mb-3">
+                {error}
+              </Alert>
+            )}
+            {successMessage && (
+              <Alert variant="success" className="mb-3">
+                {successMessage}
+              </Alert>
+            )}
+
+            <Tab.Container activeKey={activeTab} onSelect={(k) => setActiveTab(k)}>
+              <Nav variant="tabs" className="mb-3">
+                <Nav.Item>
+                  <Nav.Link eventKey="imobiliarias">Imobiliárias</Nav.Link>
+                </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="consumos">Consumos</Nav.Link>
+                </Nav.Item>
+              </Nav>
+
+              <Tab.Content>
+                {/* Aba Imobiliárias */}
+                <Tab.Pane eventKey="imobiliarias">
+                  {loading ? (
+                    <div className="text-center py-5">
+                      <Spinner animation="border" role="status" variant="primary">
+                        <span className="visually-hidden">Carregando...</span>
+                      </Spinner>
+                      <p className="mt-2">Carregando imobiliárias...</p>
+                    </div>
+                  ) : imobiliarias.length === 0 ? (
+                    <Alert variant="info">
+                      Nenhuma imobiliária cadastrada. Clique em "Nova Imobiliária" para adicionar.
+                    </Alert>
+                  ) : (
+                    <Table responsive hover>
+                      <thead>
+                        <tr>
+                          <th>Nome</th>
+                          <th>Endereço</th>
+                          <th>Contato</th>
+                          <th>Telefone</th>
+                          <th>Créditos Disponíveis</th>
+                          <th>Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {imobiliarias.map((imobiliaria, index) => (
+                          <tr key={imobiliaria.id} onClick={() => handleShowViewModal(imobiliaria)} style={{ cursor: 'pointer' }}>
+                            <td><strong>{imobiliaria.nome}</strong></td>
+                            <td>{imobiliaria.endereco}</td>
+                            <td>{imobiliaria.contato}</td>
+                            <td>{imobiliaria.telefone}</td>
+                            <td>
+                              <CreditosBadge imobiliariaId={imobiliaria.id} />
+                            </td>
+                            <td>
+                              <Button 
+                                variant="outline-primary" 
+                                size="sm" 
+                                className="me-2"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleShowViewModal(imobiliaria);
+                                }}
+                              >
+                                <FontAwesomeIcon icon={faEye} />
+                              </Button>
+                              {usuarioLogado?.tipo === 'admin' && (
+                                <Button 
+                                  variant="outline-secondary" 
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleShowEditModal(imobiliaria);
+                                  }}
+                                >
+                                  <FontAwesomeIcon icon={faEdit} />
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </Tab.Pane>
+
+                {/* Aba Consumos */}
+                <Tab.Pane eventKey="consumos">
+                  {/* Filtros */}
+                  <Row className="mb-3">
+                    <Col md={3}>
+                      <Form.Label>Ano:</Form.Label>
+                      <Form.Select
+                        value={anoFilter}
+                        onChange={(e) => setAnoFilter(e.target.value)}
                       >
-                        <FontAwesomeIcon icon={faEye} />
-                      </Button>
-                      {usuarioLogado?.tipo === 'admin' && (
-                        <Button 
-                          variant="outline-secondary" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleShowEditModal(imobiliaria);
-                          }}
-                        >
-                          <FontAwesomeIcon icon={faEdit} />
-                        </Button>
+                        <option value="">Todos os anos</option>
+                        {Array.from({length: 10}, (_, i) => new Date().getFullYear() - i).map(year => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </Form.Select>
+                    </Col>
+                    <Col md={3}>
+                      <Form.Label>Mês:</Form.Label>
+                      <Form.Select
+                        value={mesFilter}
+                        onChange={(e) => setMesFilter(e.target.value)}
+                      >
+                        <option value="">Todos os meses</option>
+                        <option value="1">Janeiro</option>
+                        <option value="2">Fevereiro</option>
+                        <option value="3">Março</option>
+                        <option value="4">Abril</option>
+                        <option value="5">Maio</option>
+                        <option value="6">Junho</option>
+                        <option value="7">Julho</option>
+                        <option value="8">Agosto</option>
+                        <option value="9">Setembro</option>
+                        <option value="10">Outubro</option>
+                        <option value="11">Novembro</option>
+                        <option value="12">Dezembro</option>
+                      </Form.Select>
+                    </Col>
+                  </Row>
+
+                  {/* Tabela de Consumos */}
+                  {loadingConsumo ? (
+                    <div className="text-center py-5">
+                      <Spinner animation="border" role="status" variant="primary">
+                        <span className="visually-hidden">Carregando...</span>
+                      </Spinner>
+                      <p className="mt-2">Carregando dados de consumo...</p>
+                    </div>
+                  ) : (
+                    <Table responsive hover>
+                      <thead>
+                        <tr>
+                          <th>Nome</th>
+                          <th>Consumo</th>
+                          <th>Crédito Atual</th>
+                          <th>Qtd. Vistorias</th>
+                          <th>% Crédito Atual</th>
+                          <th>Área M²</th>
+                          <th>Crédito Adquirido</th>
+                          <th>Valor Investido</th>
+                          <th>Valor Líquido</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dadosConsumo.map((item) => (
+                          <tr key={item.id}>
+                            <td><strong>{item.nome}</strong></td>
+                            <td>{item.consumo.toFixed(2)}</td>
+                            <td>{item.creditoAtual.toFixed(2)}</td>
+                            <td>{item.quantidadeVistorias}</td>
+                            <td>{item.percentualCredito.toFixed(1)}%</td>
+                            <td>{item.areaM2.toFixed(2)}</td>
+                            <td>{item.creditoAdquirido.toFixed(2)}</td>
+                            <td>{formatCurrency(item.valorInvestido)}</td>
+                            <td className={item.valorLiquido >= 0 ? 'text-success' : 'text-danger'}>
+                              {formatCurrency(item.valorLiquido)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {dadosConsumo.length > 0 && (
+                        <tfoot className="table-light">
+                          <tr>
+                            <td><strong>TOTAL</strong></td>
+                            <td><strong>{dadosConsumo.reduce((sum, item) => sum + item.consumo, 0).toFixed(2)}</strong></td>
+                            <td><strong>{dadosConsumo.reduce((sum, item) => sum + item.creditoAtual, 0).toFixed(2)}</strong></td>
+                            <td><strong>{dadosConsumo.reduce((sum, item) => sum + item.quantidadeVistorias, 0)}</strong></td>
+                            <td><strong>-</strong></td>
+                            <td><strong>{dadosConsumo.reduce((sum, item) => sum + item.areaM2, 0).toFixed(2)}</strong></td>
+                            <td><strong>{dadosConsumo.reduce((sum, item) => sum + item.creditoAdquirido, 0).toFixed(2)}</strong></td>
+                            <td><strong>{formatCurrency(dadosConsumo.reduce((sum, item) => sum + item.valorInvestido, 0))}</strong></td>
+                            <td className={dadosConsumo.reduce((sum, item) => sum + item.valorLiquido, 0) >= 0 ? 'text-success' : 'text-danger'}>
+                              <strong>{formatCurrency(dadosConsumo.reduce((sum, item) => sum + item.valorLiquido, 0))}</strong>
+                            </td>
+                          </tr>
+                        </tfoot>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </Card.Body>
-      </Card>
+                    </Table>
+                  )}
+                </Tab.Pane>
+              </Tab.Content>
+            </Tab.Container>
+          </Card.Body>
+        </Card>
 
       {/* Modal para cadastro de nova imobiliária */}
       <Modal show={showModal} onHide={handleCloseModal}>

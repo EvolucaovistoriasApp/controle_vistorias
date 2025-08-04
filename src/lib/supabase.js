@@ -1381,6 +1381,139 @@ export const vistoriasService = {
 }
 
 // 🆕 Service para executar migrações (uso interno)
+// Serviço para upload de imagens das vistorias
+export const imagensVistoriaService = {
+  // Upload de imagens da trena a laser para o Storage do Supabase
+  async uploadImagensTrena(vistoriaId, imagensFiles) {
+    try {
+      const imagensUploadadas = [];
+      
+      for (let i = 0; i < imagensFiles.length; i++) {
+        const imagem = imagensFiles[i];
+        const fileName = `vistoria_${vistoriaId}_trena_${i + 1}_${Date.now()}.${imagem.file.name.split('.').pop()}`;
+        const filePath = `vistorias/${vistoriaId}/trena/${fileName}`;
+        
+        // Upload da imagem para o Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('imagens-vistorias')
+          .upload(filePath, imagem.file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error('Erro ao fazer upload da imagem:', uploadError);
+          continue;
+        }
+
+        // Obter URL pública da imagem
+        const { data: urlData } = supabase.storage
+          .from('imagens-vistorias')
+          .getPublicUrl(filePath);
+
+        imagensUploadadas.push({
+          nome: imagem.nome,
+          path: filePath,
+          url: urlData.publicUrl,
+          tipo: 'trena',
+          tamanho: imagem.tamanho
+        });
+      }
+
+      return { success: true, data: imagensUploadadas };
+    } catch (error) {
+      console.error('Erro ao fazer upload das imagens:', error);
+      return { success: false, error: 'Erro ao fazer upload das imagens' };
+    }
+  },
+
+  // Salvar metadados das imagens no banco
+  async salvarImagensVistoria(vistoriaId, imagensMetadata) {
+    try {
+      const imagensParaSalvar = imagensMetadata.map(img => ({
+        vistoria_id: vistoriaId,
+        nome_arquivo: img.nome,
+        path_storage: img.path,
+        url_publica: img.url,
+        tipo_imagem: img.tipo,
+        tamanho_arquivo: img.tamanho
+      }));
+
+      const { data, error } = await supabase
+        .from('imagens_vistorias')
+        .insert(imagensParaSalvar);
+
+      if (error) {
+        console.error('Erro ao salvar metadados das imagens:', error);
+        return { success: false, error: 'Erro ao salvar informações das imagens' };
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Erro ao salvar metadados das imagens:', error);
+      return { success: false, error: 'Erro interno do servidor' };
+    }
+  },
+
+  // Carregar imagens de uma vistoria
+  async carregarImagensVistoria(vistoriaId) {
+    try {
+      const { data, error } = await supabase
+        .from('imagens_vistorias')
+        .select('*')
+        .eq('vistoria_id', vistoriaId)
+        .eq('ativo', true)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Erro ao carregar imagens da vistoria:', error);
+        return { success: false, error: 'Erro ao carregar imagens' };
+      }
+
+      return { success: true, data: data || [] };
+    } catch (error) {
+      console.error('Erro ao carregar imagens da vistoria:', error);
+      return { success: false, error: 'Erro interno do servidor' };
+    }
+  },
+
+  // Excluir imagens de uma vistoria
+  async excluirImagensVistoria(vistoriaId) {
+    try {
+      // Primeiro, buscar as imagens para obter os paths
+      const { data: imagensExistentes, error: buscarError } = await supabase
+        .from('imagens_vistorias')
+        .select('path_storage')
+        .eq('vistoria_id', vistoriaId);
+
+      if (!buscarError && imagensExistentes) {
+        // Excluir arquivos do Storage
+        for (const img of imagensExistentes) {
+          await supabase.storage
+            .from('imagens-vistorias')
+            .remove([img.path_storage]);
+        }
+      }
+
+      // Excluir registros do banco
+      const { error } = await supabase
+        .from('imagens_vistorias')
+        .delete()
+        .eq('vistoria_id', vistoriaId);
+
+      if (error) {
+        console.error('Erro ao excluir registros de imagens:', error);
+        return { success: false, error: 'Erro ao excluir imagens' };
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao excluir imagens da vistoria:', error);
+      return { success: false, error: 'Erro interno do servidor' };
+    }
+  }
+};
+
 export const migrationService = {
   // 🆕 Migração específica para adicionar colunas do sistema de remuneração
   async adicionarColunasRemuneracao() {
@@ -1395,7 +1528,35 @@ export const migrationService = {
         
         `-- Adicionar coluna valor_unitario_vistoriador na tabela vistorias
         ALTER TABLE vistorias 
-        ADD COLUMN IF NOT EXISTS valor_unitario_vistoriador DECIMAL(10,2) DEFAULT 0.00;`
+        ADD COLUMN IF NOT EXISTS valor_unitario_vistoriador DECIMAL(10,2) DEFAULT 0.00;`,
+        
+        `-- Criar tabela para armazenar metadados das imagens das vistorias
+        CREATE TABLE IF NOT EXISTS imagens_vistorias (
+          id BIGSERIAL PRIMARY KEY,
+          vistoria_id BIGINT NOT NULL,
+          nome_arquivo VARCHAR(255) NOT NULL,
+          path_storage TEXT NOT NULL,
+          url_publica TEXT NOT NULL,
+          tipo_imagem VARCHAR(50) DEFAULT 'trena',
+          tamanho_arquivo VARCHAR(20),
+          ativo BOOLEAN DEFAULT true,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          FOREIGN KEY (vistoria_id) REFERENCES vistorias(id) ON DELETE CASCADE
+        );`,
+        
+        `-- Criar índices para otimizar consultas
+        CREATE INDEX IF NOT EXISTS idx_imagens_vistorias_vistoria_id ON imagens_vistorias(vistoria_id);
+        CREATE INDEX IF NOT EXISTS idx_imagens_vistorias_ativo ON imagens_vistorias(ativo);`,
+        
+        `-- Instruções para criar bucket no Supabase Storage
+        -- Execute no painel do Supabase (Storage > Create bucket):
+        -- Nome do bucket: imagens-vistorias
+        -- Público: true
+        -- Ou execute via SQL:
+        INSERT INTO storage.buckets (id, name, public)
+        VALUES ('imagens-vistorias', 'imagens-vistorias', true)
+        ON CONFLICT (id) DO NOTHING;`
       ]
       
       console.log('📋 Execute os seguintes comandos SQL no seu banco de dados:')

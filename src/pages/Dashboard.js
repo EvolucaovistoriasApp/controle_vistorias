@@ -1,11 +1,234 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Alert, Spinner, Nav, Tab } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes } from '@fortawesome/free-solid-svg-icons';
 import DashboardLayout from '../components/DashboardLayout';
-import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService } from '../lib/supabase';
+import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService, imagensVistoriaService } from '../lib/supabase';
 
-// 🆕 Componente para exibir valor monetário da vistoria (valor fixo salvo no momento do lançamento)
+// Componente para upload de imagens da trena a laser
+const ImageUploadTrena = ({ imagens, onImagensChange, maxImages = 2 }) => {
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    const remainingSlots = maxImages - imagens.length;
+    
+    if (files.length > remainingSlots) {
+      alert(`Você pode adicionar no máximo ${remainingSlots} imagem(ns) restante(s).`);
+      return;
+    }
+
+    const maxFileSize = 5 * 1024 * 1024; // 5MB
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+    files.forEach(file => {
+      // Validar tipo de arquivo
+      if (!allowedTypes.includes(file.type)) {
+        alert(`Formato não suportado: ${file.name}. Use apenas JPEG, PNG ou WebP.`);
+        return;
+      }
+
+      // Validar tamanho do arquivo
+      if (file.size > maxFileSize) {
+        alert(`Arquivo muito grande: ${file.name}. Tamanho máximo: 5MB.`);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const novaImagem = {
+          id: Date.now() + Math.random(),
+          file: file,
+          dataUrl: event.target.result,
+          nome: file.name,
+          tamanho: (file.size / 1024 / 1024).toFixed(2) + ' MB'
+        };
+        onImagensChange([...imagens, novaImagem]);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Limpar o input
+    e.target.value = '';
+  };
+
+  const removerImagem = async (imageId) => {
+    const imagemParaRemover = imagens.find(img => img.id === imageId);
+    
+    // Se for uma imagem que veio do banco de dados, excluir do servidor
+    if (imagemParaRemover && imagemParaRemover.fromDatabase) {
+      if (window.confirm('Tem certeza que deseja excluir esta imagem? Esta ação não pode ser desfeita.')) {
+        try {
+          // Aqui você pode implementar a exclusão individual no servidor se necessário
+          // Por enquanto, apenas remove do estado local
+          onImagensChange(imagens.filter(img => img.id !== imageId));
+        } catch (error) {
+          console.error('Erro ao remover imagem:', error);
+          alert('Erro ao remover imagem. Tente novamente.');
+        }
+      }
+    } else {
+      // Para imagens novas (ainda não salvas), apenas remove do estado
+      onImagensChange(imagens.filter(img => img.id !== imageId));
+    }
+  };
+
+  const visualizarImagem = (imagem) => {
+    setSelectedImage(imagem);
+    setShowImageModal(true);
+  };
+
+  return (
+    <>
+      <Form.Group className="mb-3">
+        <Form.Label className="small text-muted">
+          <FontAwesomeIcon icon={faCamera} className="me-1" />
+          Imagens da Trena a Laser (Máximo {maxImages})
+        </Form.Label>
+        
+        {/* Área de upload compacta */}
+        <div className="border border-1 border-dashed rounded p-2 text-center" style={{ backgroundColor: '#f8f9fa' }}>
+          {imagens.length < maxImages && (
+            <div className="mb-2">
+              <input
+                type="file"
+                id="imageUpload"
+                multiple
+                accept="image/*"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+              />
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                onClick={() => document.getElementById('imageUpload').click()}
+                className="btn-sm px-2 py-1"
+              >
+                <FontAwesomeIcon icon={faCamera} className="me-1" size="sm" />
+                Anexar Fotos da Trena
+              </Button>
+              <div className="mt-1 text-muted" style={{ fontSize: '0.75rem' }}>
+                Anexe fotos da trena a laser para validação da área
+              </div>
+            </div>
+          )}
+
+          {/* Miniaturas das imagens - compactas */}
+          {imagens.length > 0 && (
+            <div className="d-flex flex-wrap gap-1 justify-content-center">
+              {imagens.map((imagem) => (
+                <div key={imagem.id} className="position-relative">
+                  <div
+                    className="border rounded"
+                    style={{
+                      width: '60px',
+                      height: '45px',
+                      cursor: 'pointer',
+                      overflow: 'hidden'
+                    }}
+                    onClick={() => visualizarImagem(imagem)}
+                  >
+                    <img
+                      src={imagem.dataUrl}
+                      alt={imagem.nome}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover'
+                      }}
+                    />
+                    <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-dark bg-opacity-50"
+                         style={{ 
+                           transition: 'opacity 0.2s',
+                           opacity: '0'
+                         }}
+                         onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                         onMouseLeave={(e) => e.currentTarget.style.opacity = '0'}>
+                      <FontAwesomeIcon icon={faExpand} className="text-white" size="lg" />
+                    </div>
+                  </div>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    className="position-absolute top-0 end-0 rounded-circle"
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      padding: '0',
+                      fontSize: '10px',
+                      transform: 'translate(50%, -50%)'
+                    }}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await removerImagem(imagem.id);
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faTimes} size="xs" />
+                  </Button>
+                  <div className="text-center mt-1">
+                    <small className="text-muted" style={{ fontSize: '0.7rem' }}>
+                      {imagem.nome.length > 8 ? imagem.nome.substring(0, 8) + '...' : imagem.nome}
+                    </small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {imagens.length === 0 && (
+            <div className="text-muted">
+              <FontAwesomeIcon icon={faCamera} size="lg" className="mb-1 opacity-50" />
+              <div style={{ fontSize: '0.8rem' }}>Nenhuma imagem anexada</div>
+            </div>
+          )}
+        </div>
+
+        <Form.Text className="text-muted" style={{ fontSize: '0.7rem' }}>
+          Clique nas miniaturas para expandir. Máximo de {maxImages} imagens.
+        </Form.Text>
+      </Form.Group>
+
+      {/* Modal para visualização da imagem */}
+      <Modal show={showImageModal} onHide={() => setShowImageModal(false)} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>
+            <FontAwesomeIcon icon={faCamera} className="me-2" />
+            Visualizar Imagem da Trena
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="text-center">
+          {selectedImage && (
+            <>
+              <img
+                src={selectedImage.dataUrl}
+                alt={selectedImage.nome}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '70vh',
+                  objectFit: 'contain'
+                }}
+              />
+              <div className="mt-3">
+                <div><strong>Nome do arquivo:</strong> {selectedImage.nome}</div>
+                {selectedImage.tamanho && (
+                  <div className="text-muted"><strong>Tamanho:</strong> {selectedImage.tamanho}</div>
+                )}
+              </div>
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowImageModal(false)}>
+            Fechar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </>
+  );
+};
+
+// �� Componente para exibir valor monetário da vistoria (valor fixo salvo no momento do lançamento)
 const ValorMonetarioVistoria = ({ vistoria }) => {
   const [valorMonetario, setValorMonetario] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -215,23 +438,13 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
   };
 
   if (loading) {
-    return (
-      <div className="text-center text-muted">
-        <Spinner animation="border" size="sm" className="me-2" />
-        Calculando remuneração...
-      </div>
-    );
+    return <Spinner animation="border" size="sm" />;
   }
 
   return (
-    <div className="text-end">
-      <h6 className="text-success mb-0">
-        Total de Remuneração: <strong>{formatCurrency(totalRemuneracao || 0)}</strong>
-      </h6>
-      <small className="text-muted">
-        Total que os vistoriadores receberão pelas {vistorias.length} vistorias
-      </small>
-    </div>
+    <span className="fw-bold text-success fs-6">
+      {formatCurrency(totalRemuneracao || 0)}
+    </span>
   );
 };
 
@@ -357,21 +570,6 @@ const TabelaVistorias = ({
             </tr>
           ))}
         </tbody>
-        <tfoot className="table-light">
-          <tr>
-            <td colSpan="9" className="text-end">
-              <strong>{isVistoriadorView ? 'Total de Remuneração:' : 'Total de Valores:'}</strong>
-            </td>
-            <td className="text-nowrap">
-              {isVistoriadorView ? (
-                <TotalRemuneracaoVistoriadores vistorias={vistoriasFiltradas} />
-              ) : (
-                <TotalValorVistorias vistorias={vistoriasFiltradas} />
-              )}
-            </td>
-            <td></td>
-          </tr>
-        </tfoot>
       </Table>
     </div>
   );
@@ -395,6 +593,9 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const [activeTab, setActiveTab] = useState(usuarioLogado?.tipo === 'admin' ? 'administrador' : 'vistoriador');
 
   const [filtroTexto, setFiltroTexto] = useState('');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+  const [vistoriadorFiltro, setVistoriadorFiltro] = useState('');
 
   // Estados para o modal de nova vistoria
   const [showNovaVistoriaModal, setShowNovaVistoriaModal] = useState(false);
@@ -423,6 +624,9 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const [showConfirmExcluir, setShowConfirmExcluir] = useState(false);
   const [vistoriaParaExcluir, setVistoriaParaExcluir] = useState(null);
   const [excluindoVistoria, setExcluindoVistoria] = useState(false);
+  
+  // Estado para imagens da trena a laser
+  const [imagensTrena, setImagensTrena] = useState([]);
 
   // Carregamento de dados do Supabase
   useEffect(() => {
@@ -484,12 +688,12 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
   };
 
-  // Função para filtrar vistorias com base no filtro de texto
+  // Função para filtrar vistorias com base nos filtros ativos
   // (O service já filtra por usuário/vistoriador)
   const vistoriasFiltradas = vistorias.filter(vistoria => {
     const textoFiltro = filtroTexto.toLowerCase();
     
-    // Filtro de texto apenas
+    // Filtro de texto
     const matchTexto = (
       vistoria.codigo.toLowerCase().includes(textoFiltro) ||
       (vistoria.imobiliarias?.nome || '').toLowerCase().includes(textoFiltro) ||
@@ -498,7 +702,15 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       (vistoria.tipos_imoveis?.nome || '').toLowerCase().includes(textoFiltro)
     );
     
-    return matchTexto;
+    // Filtro de período
+    const dataVistoria = new Date(vistoria.data_vistoria);
+    const matchDataInicio = !dataInicio || dataVistoria >= new Date(dataInicio);
+    const matchDataFim = !dataFim || dataVistoria <= new Date(dataFim);
+    
+    // Filtro de vistoriador (apenas para admin)
+    const matchVistoriador = !vistoriadorFiltro || vistoria.vistoriador_id === vistoriadorFiltro;
+    
+    return matchTexto && matchDataInicio && matchDataFim && matchVistoriador;
   });
 
   // Função para obter data atual
@@ -557,6 +769,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     setCreditosDisponiveis(0);
     setVistoriaEditando(null);
     setIsVistoriadorEditing(false);
+    setImagensTrena([]);
   };
 
   // Função para obter valor unitário mais recente
@@ -697,6 +910,39 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       }
       
       if (result.success) {
+        // Processar imagens da trena a laser
+        if (imagensTrena.length > 0) {
+          try {
+            const vistoriaId = vistoriaEditando ? vistoriaEditando.id : result.data.id;
+            
+            // Separar imagens novas das que já existem no banco
+            const imagensNovas = imagensTrena.filter(img => !img.fromDatabase);
+            const imagensExistentes = imagensTrena.filter(img => img.fromDatabase);
+            
+            // Upload apenas das imagens novas
+            if (imagensNovas.length > 0) {
+              const uploadResult = await imagensVistoriaService.uploadImagensTrena(vistoriaId, imagensNovas);
+              
+              if (uploadResult.success) {
+                // Salvar metadados das imagens novas no banco
+                await imagensVistoriaService.salvarImagensVistoria(vistoriaId, uploadResult.data);
+                console.log(`✅ ${imagensNovas.length} nova(s) imagem(ns) da trena a laser salva(s) com sucesso`);
+              } else {
+                console.warn('⚠️ Erro ao salvar imagens novas:', uploadResult.error);
+                setErrorMessage(`Vistoria salva, mas houve erro ao salvar as imagens: ${uploadResult.error}`);
+              }
+            }
+            
+            if (imagensExistentes.length > 0) {
+              console.log(`✅ ${imagensExistentes.length} imagem(ns) existente(s) mantida(s)`);
+            }
+            
+          } catch (imageError) {
+            console.error('Erro ao processar imagens:', imageError);
+            setErrorMessage('Vistoria salva, mas houve erro ao processar as imagens da trena');
+          }
+        }
+        
         setTimeout(() => {
           handleCloseNovaVistoriaModal();
         }, 2000);
@@ -800,6 +1046,28 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         isExpress: vistoria.is_express
       });
 
+      // Carregar imagens existentes da vistoria
+      try {
+        const imagensResult = await imagensVistoriaService.carregarImagensVistoria(vistoria.id);
+        if (imagensResult.success && imagensResult.data.length > 0) {
+          // Converter dados do banco para o formato do componente
+          const imagensFormatadas = imagensResult.data.map(img => ({
+            id: img.id,
+            nome: img.nome_arquivo,
+            dataUrl: img.url_publica,
+            tamanho: img.tamanho_arquivo,
+            fromDatabase: true, // Flag para identificar que veio do banco
+            databaseId: img.id
+          }));
+          setImagensTrena(imagensFormatadas);
+        } else {
+          setImagensTrena([]);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar imagens da vistoria:', error);
+        setImagensTrena([]);
+      }
+      
       setShowNovaVistoriaModal(true);
     } catch (error) {
       console.error('Erro ao abrir modal de edição:', error);
@@ -820,6 +1088,15 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
 
     try {
       setExcluindoVistoria(true);
+
+      // Primeiro, excluir as imagens associadas à vistoria
+      try {
+        await imagensVistoriaService.excluirImagensVistoria(vistoriaParaExcluir.id);
+        console.log('✅ Imagens da vistoria excluídas com sucesso');
+      } catch (imagensError) {
+        console.warn('⚠️ Erro ao excluir imagens da vistoria:', imagensError);
+        // Continua com a exclusão da vistoria mesmo se falhar ao excluir imagens
+      }
 
       const result = await vistoriasService.excluirVistoria(vistoriaParaExcluir.id);
       
@@ -931,8 +1208,21 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                         </Button>
                       </div>
 
+                      {/* Total de Valores */}
                       <Row className="mb-3">
-                        <Col md={6} lg={4}>
+                        <Col md={12}>
+                          <div className="d-flex justify-content-end align-items-center">
+                            <span className="text-muted me-2">Total de Valores:</span>
+                            <span className="fs-5 text-primary fw-bold">
+                              <TotalValorVistorias vistorias={vistoriasFiltradas} />
+                            </span>
+                          </div>
+                        </Col>
+                      </Row>
+
+                      {/* Filtros - Aba Administrador */}
+                      <Row className="mb-3">
+                        <Col md={6} lg={3}>
                           <InputGroup size="sm">
                             <InputGroup.Text>
                               <FontAwesomeIcon icon={faSearch} />
@@ -944,6 +1234,55 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                               onChange={(e) => setFiltroTexto(e.target.value)}
                             />
                           </InputGroup>
+                        </Col>
+                        <Col md={3} lg={2}>
+                          <Form.Control
+                            type="date"
+                            size="sm"
+                            placeholder="Data início"
+                            value={dataInicio}
+                            onChange={(e) => setDataInicio(e.target.value)}
+                            title="Data de início"
+                          />
+                        </Col>
+                        <Col md={3} lg={2}>
+                          <Form.Control
+                            type="date"
+                            size="sm"
+                            placeholder="Data fim"
+                            value={dataFim}
+                            onChange={(e) => setDataFim(e.target.value)}
+                            title="Data final"
+                          />
+                        </Col>
+                        <Col md={6} lg={3}>
+                          <Form.Select
+                            size="sm"
+                            value={vistoriadorFiltro}
+                            onChange={(e) => setVistoriadorFiltro(e.target.value)}
+                          >
+                            <option value="">Todos os vistoriadores</option>
+                            {vistoriadores.map(vistoriador => (
+                              <option key={vistoriador.id} value={vistoriador.id}>
+                                {vistoriador.nome}
+                              </option>
+                            ))}
+                          </Form.Select>
+                        </Col>
+                        <Col md={6} lg={2}>
+                          <Button
+                            variant="outline-secondary"
+                            size="sm"
+                            className="w-100"
+                            onClick={() => {
+                              setFiltroTexto('');
+                              setDataInicio('');
+                              setDataFim('');
+                              setVistoriadorFiltro('');
+                            }}
+                          >
+                            Limpar Filtros
+                          </Button>
                         </Col>
                       </Row>
 
@@ -970,6 +1309,19 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                         </div>
                       </div>
 
+                      {/* Total de Remuneração */}
+                      <Row className="mb-3">
+                        <Col md={12}>
+                          <div className="d-flex justify-content-end align-items-center">
+                            <span className="text-muted me-2">Total de Remuneração:</span>
+                            <span className="fs-5 text-success fw-bold">
+                              <TotalRemuneracaoVistoriadores vistorias={vistoriasFiltradas} />
+                            </span>
+                          </div>
+                        </Col>
+                      </Row>
+
+                      {/* Filtros - Aba Vistoriador */}
                       <Row className="mb-3">
                         <Col md={6} lg={4}>
                           <InputGroup size="sm">
@@ -983,6 +1335,40 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                               onChange={(e) => setFiltroTexto(e.target.value)}
                             />
                           </InputGroup>
+                        </Col>
+                        <Col md={3} lg={2}>
+                          <Form.Control
+                            type="date"
+                            size="sm"
+                            placeholder="Data início"
+                            value={dataInicio}
+                            onChange={(e) => setDataInicio(e.target.value)}
+                            title="Data de início"
+                          />
+                        </Col>
+                        <Col md={3} lg={2}>
+                          <Form.Control
+                            type="date"
+                            size="sm"
+                            placeholder="Data fim"
+                            value={dataFim}
+                            onChange={(e) => setDataFim(e.target.value)}
+                            title="Data final"
+                          />
+                        </Col>
+                        <Col md={6} lg={2}>
+                          <Button
+                            variant="outline-secondary"
+                            size="sm"
+                            className="w-100"
+                            onClick={() => {
+                              setFiltroTexto('');
+                              setDataInicio('');
+                              setDataFim('');
+                            }}
+                          >
+                            Limpar Filtros
+                          </Button>
                         </Col>
                       </Row>
 
@@ -1210,7 +1596,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                 </Col>
               </Row>
 
-              <Row>
+                                  <Row>
                 {/* 🆕 Taxa de Deslocamento - ReadOnly para vistoriador */}
                 <Col md={isVistoriadorEditing ? 6 : 4}>
                   <Form.Group className="mb-3">
@@ -1308,6 +1694,19 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                   </Form.Group>
                 </Col>
               </Row>
+
+              {/* Seção de Upload de Imagens da Trena a Laser - Apenas para edição */}
+              {vistoriaEditando && (
+                <Row>
+                  <Col md={12}>
+                    <ImageUploadTrena 
+                      imagens={imagensTrena}
+                      onImagensChange={setImagensTrena}
+                      maxImages={2}
+                    />
+                  </Col>
+                </Row>
+              )}
 
               {/* Seção de Valor Monetário */}
               {vistoriaData.imobiliariaId && valorUnitarioAtual > 0 && (
