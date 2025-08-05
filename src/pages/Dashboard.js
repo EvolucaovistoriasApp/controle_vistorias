@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Alert, Spinner, Nav, Tab } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes, faSync, faFileImage, faDownload } from '@fortawesome/free-solid-svg-icons';
+import html2canvas from 'html2canvas';
 import DashboardLayout from '../components/DashboardLayout';
 import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService, imagensVistoriaService } from '../lib/supabase';
 
@@ -448,14 +449,195 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
   );
 };
 
+// 📄 Componente de Relatório formatado para A4
+const RelatorioVistorias = ({ 
+  vistorias, 
+  usuarioLogado, 
+  filtros,
+  isVistoriadorView = false 
+}) => {
+  const formatDate = (dateString) => {
+    const date = new Date(dateString + 'T00:00:00');
+    return date.toLocaleDateString('pt-BR');
+  };
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value || 0);
+  };
+
+  const calcularTotalGeral = () => {
+    return vistorias.reduce((total, vistoria) => {
+      if (isVistoriadorView) {
+        // Para vistoriador, calcular remuneração
+        const valorUnitario = 0.5; // Valor padrão, seria bom pegar do sistema
+        const consumo = parseFloat(vistoria.consumo_calculado) || 0;
+        return total + (valorUnitario * consumo);
+      } else {
+        // Para admin, valor monetário total
+        return total + (parseFloat(vistoria.valor_monetario) || 0);
+      }
+    }, 0);
+  };
+
+  const agora = new Date();
+  const dataHoraRelatorio = agora.toLocaleString('pt-BR');
+
+  return (
+    <div style={{
+      width: '794px', // A4 width in pixels at 96 DPI
+      minHeight: '1123px', // A4 height in pixels at 96 DPI
+      padding: '40px',
+      backgroundColor: 'white',
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '12px',
+      lineHeight: '1.4',
+      color: '#000'
+    }}>
+      {/* Cabeçalho do Relatório */}
+      <div style={{ textAlign: 'center', marginBottom: '30px', borderBottom: '2px solid #0d6efd', paddingBottom: '20px' }}>
+        <h1 style={{ color: '#0d6efd', margin: '0 0 10px 0', fontSize: '24px', fontWeight: 'bold' }}>
+          Controle de Vistorias
+        </h1>
+        <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#333' }}>
+          {isVistoriadorView ? 'Relatório de Remuneração - Vistoriador' : 'Relatório de Vistorias - Administração'}
+        </h2>
+        <div style={{ fontSize: '14px', color: '#666' }}>
+          <div><strong>Usuário:</strong> {usuarioLogado?.nome || 'N/A'}</div>
+          <div><strong>Data/Hora:</strong> {dataHoraRelatorio}</div>
+          <div><strong>Total de registros:</strong> {vistorias.length}</div>
+        </div>
+      </div>
+
+      {/* Filtros Aplicados */}
+      {(filtros.texto || filtros.dataInicio || filtros.dataFim || filtros.vistoriador) && (
+        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', border: '1px solid #ddd', borderRadius: '5px' }}>
+          <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#495057' }}>Filtros Aplicados:</h3>
+          {filtros.texto && <div><strong>Busca:</strong> {filtros.texto}</div>}
+          {filtros.dataInicio && <div><strong>Data Início:</strong> {formatDate(filtros.dataInicio)}</div>}
+          {filtros.dataFim && <div><strong>Data Fim:</strong> {formatDate(filtros.dataFim)}</div>}
+          {filtros.vistoriador && <div><strong>Vistoriador:</strong> {filtros.vistoriador}</div>}
+        </div>
+      )}
+
+      {/* Tabela de Vistorias */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
+        <thead>
+          <tr style={{ backgroundColor: '#0d6efd', color: 'white' }}>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Código</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Imobiliária</th>
+            {usuarioLogado?.tipo !== 'vistoriador' && (
+              <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Vistoriador</th>
+            )}
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Data</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Tipo</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Área</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Mobília</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Consumo</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Endereço</th>
+            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>
+              {isVistoriadorView ? 'Remuneração' : 'Valor'}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {vistorias.map((vistoria, index) => (
+            <tr key={vistoria.id} style={{ backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white' }}>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
+                <strong>{vistoria.codigo}</strong>
+                {vistoria.is_express && <div style={{ color: '#ffc107', fontSize: '8px' }}>⚡ EXPRESS</div>}
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
+                {vistoria.imobiliarias?.nome || 'N/A'}
+              </td>
+              {usuarioLogado?.tipo !== 'vistoriador' && (
+                <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
+                  {vistoria.vistoriadores?.nome ? 
+                    vistoria.vistoriadores.nome.split(' ').slice(0, 2).join(' ') : 
+                    'N/A'
+                  }
+                </td>
+              )}
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
+                {formatDate(vistoria.data_vistoria)}
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
+                {vistoria.tipos_imoveis?.nome || 'N/A'}
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
+                {vistoria.area_imovel}m²
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
+                {vistoria.tipos_mobilia?.nome || 'N/A'}
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
+                <strong>{parseFloat(vistoria.consumo_calculado).toFixed(1)}</strong>
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '9px' }}>
+                {vistoria.endereco.length > 50 ? vistoria.endereco.substring(0, 50) + '...' : vistoria.endereco}
+              </td>
+              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'right' }}>
+                {isVistoriadorView ? (
+                  <strong style={{ color: '#28a745' }}>
+                    {formatCurrency(0.5 * parseFloat(vistoria.consumo_calculado))}
+                  </strong>
+                ) : (
+                  <strong style={{ color: '#0d6efd' }}>
+                    {formatCurrency(vistoria.valor_monetario)}
+                  </strong>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Resumo Total */}
+      <div style={{ 
+        marginTop: '20px', 
+        padding: '15px', 
+        backgroundColor: '#e9ecef', 
+        border: '2px solid #0d6efd', 
+        borderRadius: '5px',
+        textAlign: 'right'
+      }}>
+        <h3 style={{ margin: '0', fontSize: '16px', color: '#0d6efd' }}>
+          {isVistoriadorView ? 'Total de Remuneração: ' : 'Total Geral: '}
+          <span style={{ color: isVistoriadorView ? '#28a745' : '#0d6efd' }}>
+            {formatCurrency(calcularTotalGeral())}
+          </span>
+        </h3>
+      </div>
+
+      {/* Rodapé */}
+      <div style={{ 
+        marginTop: '30px', 
+        paddingTop: '20px', 
+        borderTop: '1px solid #ddd', 
+        textAlign: 'center',
+        fontSize: '10px',
+        color: '#666'
+      }}>
+        <div>Relatório gerado automaticamente pelo Sistema de Controle de Vistorias</div>
+        <div>© {new Date().getFullYear()} - Todos os direitos reservados</div>
+      </div>
+    </div>
+  );
+};
+
 // 🆕 Componente para tabela de vistorias (reutilizável para admin e vistoriador)
 const TabelaVistorias = ({ 
   vistoriasFiltradas, 
   formatDate, 
   handleEditarVistoria, 
   handleConfirmarExclusao, 
-  isVistoriadorView = false 
+  isVistoriadorView = false,
+  usuarioLogado 
 }) => {
+  // 🔍 Lógica correta: ocultar coluna apenas se o usuário logado é vistoriador
+  const showVistoriadorColumn = usuarioLogado?.tipo !== 'vistoriador';
   if (vistoriasFiltradas.length === 0) {
     return (
       <div className="text-center py-5">
@@ -477,14 +659,14 @@ const TabelaVistorias = ({
         <thead className="table-dark">
           <tr>
             <th style={{ width: '4%' }}>Código</th>
-            <th style={{ width: '8%' }}>Imobiliária</th>
-            <th style={{ width: '7%' }}>Vistoriador</th>
+            <th style={{ width: showVistoriadorColumn ? '8%' : '10%' }}>Imobiliária</th>
+            {showVistoriadorColumn && <th style={{ width: '7%' }}>Vistoriador</th>}
             <th style={{ width: '6%' }}>Data</th>
             <th style={{ width: '8%' }}>Tipo</th>
             <th style={{ width: '6%' }}>Área</th>
             <th style={{ width: '6%' }}>Mobília</th>
             <th style={{ width: '5%', textAlign: 'center' }}>Consumo</th>
-            <th style={{ width: '37%' }}>Endereço</th>
+            <th style={{ width: showVistoriadorColumn ? '37%' : '42%' }}>Endereço</th>
             <th style={{ width: '7%' }}>Valor</th>
             <th style={{ width: '6%' }}>Ações</th>
           </tr>
@@ -505,12 +687,14 @@ const TabelaVistorias = ({
               <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
                 {vistoria.imobiliarias?.nome || 'N/A'}
               </td>
-              <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
-                {vistoria.vistoriadores?.nome ? 
-                  vistoria.vistoriadores.nome.split(' ')[0] + ' ' + (vistoria.vistoriadores.nome.split(' ')[1] || '') : 
-                  'N/A'
-                }
-              </td>
+              {showVistoriadorColumn && (
+                <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
+                  {vistoria.vistoriadores?.nome ? 
+                    vistoria.vistoriadores.nome.split(' ')[0] + ' ' + (vistoria.vistoriadores.nome.split(' ')[1] || '') : 
+                    'N/A'
+                  }
+                </td>
+              )}
               <td className="text-nowrap" style={{ fontSize: '0.9em' }}>
                 {formatDate(vistoria.data_vistoria)}
               </td>
@@ -627,6 +811,10 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   
   // Estado para imagens da trena a laser
   const [imagensTrena, setImagensTrena] = useState([]);
+  
+  // Estados para geração de relatório
+  const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
+  const relatorioRef = useRef(null);
 
   // Carregamento de dados do Supabase
   useEffect(() => {
@@ -641,9 +829,22 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       setLoading(true);
       
       // Carregar vistorias
+      console.log('🔄 Carregando vistorias para usuário:', usuarioLogado.id, 'Tipo:', usuarioLogado?.tipo);
       const vistoriaResult = await vistoriasService.listarVistorias(usuarioLogado.id);
       if (vistoriaResult.success) {
+        console.log('✅ Vistorias carregadas:', vistoriaResult.data.length);
+        console.log('📋 Códigos das vistorias encontradas:', vistoriaResult.data.map(v => v.codigo));
+        
+        // Log simples das vistorias carregadas
+        if (usuarioLogado?.tipo === 'admin') {
+          console.log('✅ [ADMIN] Carregando TODAS as vistorias do sistema');
+        } else {
+          console.log('✅ [VISTORIADOR] Carregando apenas vistorias próprias');
+        }
+        
         setVistorias(vistoriaResult.data);
+      } else {
+        console.error('❌ Erro ao carregar vistorias:', vistoriaResult.error);
       }
 
       // Carregar imobiliárias
@@ -854,8 +1055,16 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
       const consumoCalculado = calculateConsumo();
       const valorMonetario = consumoCalculado * valorUnitarioAtual;
 
+      // 🔍 Debug: Log detalhado do processo de edição
+      console.log('🔍 PROCESSO DE EDIÇÃO - NOVA LÓGICA SEM DONO:');
+      console.log('- Vistoria sendo editada:', vistoriaEditando?.codigo);
+      console.log('- Usuário atual (quem está editando):', usuarioLogado.id);
+      console.log('- É vistoriador editando?', isVistoriadorEditing);
+      console.log('- Tipo do usuário:', usuarioLogado?.tipo);
+
       const dadosVistoria = {
         codigo: vistoriaData.codigo.trim(),
+        // 🆕 Nova lógica: usuario_id não é mais relevante para filtros, mas mantemos para auditoria
         usuario_id: usuarioLogado.id,
         imobiliaria_id: vistoriaData.imobiliariaId,
         vistoriador_id: vistoriaData.vistoriadorId,
@@ -880,17 +1089,24 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         status: 'pendente'
       };
 
+      console.log('📦 Dados que serão enviados para atualização:', dadosVistoria);
+
       let result;
       if (vistoriaEditando) {
         // 🆕 Editar vistoria existente
+        console.log('🔄 Enviando atualização para o servidor...');
         result = await vistoriasService.atualizarVistoria(vistoriaEditando.id, dadosVistoria);
         
         if (result.success) {
-          // Atualizar na lista
-          setVistorias(vistorias.map(v => 
-            v.id === vistoriaEditando.id ? result.data : v
-          ));
+          console.log('✅ Atualização bem-sucedida. Dados retornados:', result.data);
+          console.log('✅ Usuario_id após atualização:', result.data?.usuario_id);
+          
+          // 🆕 Recarregar lista completa para garantir sincronização entre usuários
+          console.log('🔄 Recarregando lista do servidor...');
+          await carregarDadosReaisDoSupabase();
           setSuccessMessage(`Vistoria ${vistoriaData.codigo} atualizada com sucesso!`);
+        } else {
+          console.error('❌ Erro na atualização:', result.error);
         }
       } else {
         // Criar nova vistoria
@@ -1017,6 +1233,178 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const formatDate = (dateString) => {
     const date = new Date(dateString + 'T00:00:00');
     return date.toLocaleDateString('pt-BR');
+  };
+
+  // 🚧 Função para recuperar vistoria específica por código
+  const recuperarVistoriaPorCodigo = async (codigo) => {
+    try {
+      console.log(`🔍 Investigando vistoria ${codigo}...`);
+      
+      const result = await vistoriasService.buscarVistoriaPorCodigo(codigo);
+      
+      if (result.success) {
+        console.log(`✅ Vistoria ${codigo} encontrada:`, result.data);
+        
+        // Verificar se o usuario_id está correto (deve ser do admin)
+        const adminUserId = usuarioLogado.id;
+        
+        if (result.data.usuario_id !== adminUserId) {
+          // Corrigir o usuario_id para o admin
+          console.log(`🔧 Corrigindo usuario_id da vistoria ${codigo} de ${result.data.usuario_id} para ${adminUserId}`);
+          
+          const correcao = await vistoriasService.atualizarVistoria(result.data.id, {
+            usuario_id: adminUserId
+          });
+          
+          if (correcao.success) {
+            console.log(`✅ Usuario_id da vistoria ${codigo} corrigido!`);
+            // Recarregar lista
+            await carregarDadosReaisDoSupabase();
+            alert(`Vistoria ${codigo} recuperada com sucesso! Ela deve aparecer no painel agora.`);
+            return true;
+          } else {
+            console.error(`❌ Erro ao corrigir usuario_id da vistoria ${codigo}:`, correcao.error);
+            alert(`Erro ao corrigir vistoria ${codigo}: ${correcao.error}`);
+            return false;
+          }
+        } else {
+          alert(`Vistoria ${codigo} encontrada e já está correta!\n\nUsuário ID: ${result.data.usuario_id}\nVerifique os filtros ou tente recarregar a página.`);
+          return true;
+        }
+      } else {
+        console.log(`❌ Vistoria ${codigo} não encontrada:`, result.error);
+        alert(`Vistoria ${codigo} não encontrada: ${result.error}`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`Erro ao investigar vistoria ${codigo}:`, error);
+      alert(`Erro ao investigar vistoria ${codigo}`);
+      return false;
+    }
+  };
+
+  // 🔧 Função robusta para recuperar todas as vistorias órfãs
+  const recuperarTodasVistoriasOrfas = async () => {
+    try {
+      console.log('🔍 Iniciando busca por vistorias órfãs...');
+      setLoading(true);
+      
+      // Buscar vistorias órfãs
+      const result = await vistoriasService.buscarVistoriasOrfas(usuarioLogado.id);
+      
+      if (!result.success) {
+        alert(`Erro ao buscar vistorias órfãs: ${result.error}`);
+        return;
+      }
+      
+      if (result.data.length === 0) {
+        alert('✅ Nenhuma vistoria órfã encontrada! Todas as vistorias estão devidamente vinculadas.');
+        return;
+      }
+      
+      // Mostrar as vistorias encontradas e pedir confirmação
+      const listaOrfas = result.data.map(v => 
+        `- ${v.codigo} (${v.imobiliarias?.nome || 'S/Imob'}) - Área: ${v.area_imovel}m²`
+      ).join('\n');
+      
+      const confirmar = window.confirm(
+        `🔍 Encontradas ${result.data.length} vistorias órfãs:\n\n${listaOrfas}\n\n` +
+        `Deseja transferir a propriedade dessas vistorias para sua conta de administrador?\n\n` +
+        `⚠️ Isso fará com que elas apareçam novamente no seu painel.`
+      );
+      
+      if (!confirmar) {
+        console.log('❌ Correção cancelada pelo usuário');
+        return;
+      }
+      
+      // Corrigir as vistorias órfãs
+      const idsParaCorrigir = result.data.map(v => v.id);
+      const correcaoResult = await vistoriasService.corrigirVistoriasOrfas(idsParaCorrigir, usuarioLogado.id);
+      
+      if (correcaoResult.success) {
+        // Recarregar lista
+        await carregarDadosReaisDoSupabase();
+        alert(`✅ ${correcaoResult.data.length} vistorias recuperadas com sucesso!\n\nElas devem aparecer no seu painel agora.`);
+      } else {
+        alert(`❌ Erro ao corrigir vistorias: ${correcaoResult.error}`);
+      }
+      
+    } catch (error) {
+      console.error('Erro geral ao recuperar vistorias órfãs:', error);
+      alert('Erro geral ao recuperar vistorias órfãs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔄 Função para recarregar lista manualmente
+  const handleRecarregarLista = async () => {
+    try {
+      setLoading(true);
+      await carregarDadosReaisDoSupabase();
+      setSuccessMessage('Lista de vistorias recarregada com sucesso!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Erro ao recarregar lista:', error);
+      setErrorMessage('Erro ao recarregar lista de vistorias');
+      setTimeout(() => setErrorMessage(''), 3000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 📄 Função para gerar relatório em imagem
+  const handleGerarRelatorio = async (isVistoriadorView = false) => {
+    if (vistoriasFiltradas.length === 0) {
+      alert('Não há vistorias para gerar o relatório!');
+      return;
+    }
+
+    try {
+      setGerandoRelatorio(true);
+
+      // Aguardar um momento para garantir que o componente seja renderizado
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      if (!relatorioRef.current) {
+        throw new Error('Componente de relatório não encontrado');
+      }
+
+      // Capturar imagem do componente de relatório
+      const canvas = await html2canvas(relatorioRef.current, {
+        width: 794,
+        height: 1123,
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false
+      });
+
+      // Converter para imagem e baixar
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      
+      const link = document.createElement('a');
+      const agora = new Date();
+      const timestamp = agora.toISOString().slice(0, 19).replace(/:/g, '-');
+      const tipoRelatorio = isVistoriadorView ? 'remuneracao' : 'vistorias';
+      const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}.png`;
+      
+      link.download = nomeArquivo;
+      link.href = imgData;
+      link.click();
+
+      setSuccessMessage(`Relatório gerado e baixado com sucesso: ${nomeArquivo}`);
+      setTimeout(() => setSuccessMessage(''), 5000);
+
+    } catch (error) {
+      console.error('Erro ao gerar relatório:', error);
+      setErrorMessage('Erro ao gerar relatório. Tente novamente.');
+      setTimeout(() => setErrorMessage(''), 5000);
+    } finally {
+      setGerandoRelatorio(false);
+    }
   };
 
   // 🆕 Função para editar vistoria
@@ -1185,27 +1573,55 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             Dashboard de Vistorias
                           </h5>
                           <small className="text-muted">
-                            Gestão completa de vistorias - Criar, editar e excluir
+                            Visualização de TODAS as vistorias - Criar, editar e excluir
                           </small>
                         </div>
-                        <Button 
-                          variant="success" 
-                          onClick={handleShowNovaVistoriaModal}
-                          disabled={loading || loadingModal}
-                          className="text-nowrap"
-                        >
-                          {loadingModal ? (
-                            <>
-                              <Spinner animation="border" size="sm" className="me-2" />
-                              Carregando...
-                            </>
-                          ) : (
-                            <>
-                              <FontAwesomeIcon icon={faPlus} className="me-2" />
-                              Nova Vistoria
-                            </>
-                          )}
-                        </Button>
+                        <div className="d-flex gap-2">
+                          {/* 📄 Botão para gerar relatório */}
+                          <Button 
+                            variant="outline-info" 
+                            size="sm"
+                            onClick={() => handleGerarRelatorio(false)}
+                            title="Gerar relatório em imagem A4"
+                            disabled={loading || gerandoRelatorio || vistoriasFiltradas.length === 0}
+                          >
+                            {gerandoRelatorio ? (
+                              <Spinner animation="border" size="sm" />
+                            ) : (
+                              <FontAwesomeIcon icon={faFileImage} />
+                            )}
+                          </Button>
+
+                          {/* 🔄 Botão para recarregar lista */}
+                          <Button 
+                            variant="outline-secondary" 
+                            size="sm"
+                            onClick={handleRecarregarLista}
+                            title="Recarregar lista de vistorias"
+                            disabled={loading}
+                          >
+                            <FontAwesomeIcon icon={faSync} spin={loading} />
+                          </Button>
+                          
+                          <Button 
+                            variant="success" 
+                            onClick={handleShowNovaVistoriaModal}
+                            disabled={loading || loadingModal}
+                            className="text-nowrap"
+                          >
+                            {loadingModal ? (
+                              <>
+                                <Spinner animation="border" size="sm" className="me-2" />
+                                Carregando...
+                              </>
+                            ) : (
+                              <>
+                                <FontAwesomeIcon icon={faPlus} className="me-2" />
+                                Nova Vistoria
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
 
                       {/* Total de Valores */}
@@ -1292,6 +1708,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                         handleEditarVistoria={handleEditarVistoria} 
                         handleConfirmarExclusao={handleConfirmarExclusao}
                         isVistoriadorView={false}
+                        usuarioLogado={usuarioLogado}
                       />
                     </Tab.Pane>
                     )}
@@ -1304,8 +1721,27 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             Dashboard do Vistoriador
                           </h5>
                           <small className="text-muted">
-                            Visualização das vistorias - Apenas edição permitida
+                            Visualização apenas das SUAS vistorias - Edição permitida
                           </small>
+                        </div>
+                        <div className="d-flex gap-2">
+                          {/* 📄 Botão para gerar relatório de remuneração */}
+                          <Button 
+                            variant="outline-success" 
+                            size="sm"
+                            onClick={() => handleGerarRelatorio(true)}
+                            title="Gerar relatório de remuneração em imagem A4"
+                            disabled={loading || gerandoRelatorio || vistoriasFiltradas.length === 0}
+                          >
+                            {gerandoRelatorio ? (
+                              <Spinner animation="border" size="sm" />
+                            ) : (
+                              <>
+                                <FontAwesomeIcon icon={faFileImage} className="me-1" />
+                                Relatório
+                              </>
+                            )}
+                          </Button>
                         </div>
                       </div>
 
@@ -1378,6 +1814,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                         handleEditarVistoria={handleEditarVistoria} 
                         handleConfirmarExclusao={handleConfirmarExclusao}
                         isVistoriadorView={true}
+                        usuarioLogado={usuarioLogado}
                       />
                     </Tab.Pane>
                   </Tab.Content>
@@ -1889,6 +2326,31 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
             </Button>
           </Modal.Footer>
         </Modal>
+
+        {/* Componente de relatório oculto para captura */}
+        {gerandoRelatorio && (
+          <div 
+            ref={relatorioRef}
+            style={{ 
+              position: 'absolute', 
+              left: '-9999px', 
+              top: '0',
+              zIndex: -1
+            }}
+          >
+            <RelatorioVistorias 
+              vistorias={vistoriasFiltradas}
+              usuarioLogado={usuarioLogado}
+              filtros={{
+                texto: filtroTexto,
+                dataInicio: dataInicio,
+                dataFim: dataFim,
+                vistoriador: vistoriadorFiltro
+              }}
+              isVistoriadorView={activeTab === 'vistoriador'}
+            />
+          </div>
+        )}
       </Container>
     </DashboardLayout>
   );

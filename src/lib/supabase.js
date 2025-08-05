@@ -1138,6 +1138,8 @@ export const tiposConsumoService = {
 export const vistoriasService = {
   async listarVistorias(usuarioId) {
     try {
+      console.log('🔍 [SERVIÇO] Iniciando listarVistorias para usuário:', usuarioId);
+      
       // 🆕 Primeiro, verificar o tipo de usuário
       const { data: usuario, error: usuarioError } = await supabase
         .from('usuarios')
@@ -1149,6 +1151,8 @@ export const vistoriasService = {
         console.error('Erro ao buscar usuário:', usuarioError)
         return { success: false, error: 'Erro ao verificar usuário' }
       }
+
+      console.log('✅ [SERVIÇO] Tipo de usuário identificado:', usuario.tipo_usuario);
 
       let query = supabase
         .from('vistorias')
@@ -1163,8 +1167,10 @@ export const vistoriasService = {
         .eq('ativo', true)
         .order('created_at', { ascending: false })
 
-      // 🆕 Se for vistoriador, buscar pela referência ao vistoriador
+      // 🆕 Nova lógica: Admin vê TODAS as vistorias, Vistoriador vê apenas as suas
       if (usuario.tipo_usuario === 'vistoriador') {
+        console.log('👤 [SERVIÇO] Usuário é vistoriador - buscando apenas suas vistorias');
+        
         // Primeiro buscar o ID do vistoriador associado a este usuário
         const { data: vistoriador, error: vistoriadorError } = await supabase
           .from('vistoriadores')
@@ -1177,22 +1183,32 @@ export const vistoriasService = {
           return { success: false, error: 'Vistoriador não encontrado' }
         }
 
+        console.log('✅ [SERVIÇO] ID do vistoriador encontrado:', vistoriador.id);
         query = query.eq('vistoriador_id', vistoriador.id)
       } else {
-        // Para admin, buscar por usuario_id (quem criou)
-        query = query.eq('usuario_id', usuarioId)
+        console.log('👨‍💼 [SERVIÇO] Usuário é admin - mostrando TODAS as vistorias (sem filtro de dono)');
+        // 🆕 Para admin, NÃO filtrar por usuario_id - mostrar TODAS as vistorias
+        // query permanece sem filtro adicional, mostrando todas as vistorias ativas
       }
 
       const { data, error } = await query
 
       if (error) {
-        console.error('Erro ao listar vistorias:', error)
+        console.error('❌ [SERVIÇO] Erro na consulta SQL:', error)
         return { success: false, error: 'Erro ao listar vistorias' }
+      }
+
+      console.log('✅ [SERVIÇO] Consulta bem-sucedida. Vistorias encontradas:', data?.length || 0);
+      
+      if (usuario.tipo_usuario === 'admin') {
+        console.log('📊 [SERVIÇO] Admin - Retornando TODAS as vistorias ativas');
+      } else {
+        console.log('👤 [SERVIÇO] Vistoriador - Retornando apenas vistorias próprias');
       }
 
       return { success: true, data: data || [] }
     } catch (error) {
-      console.error('Erro ao listar vistorias:', error)
+      console.error('❌ [SERVIÇO] Erro geral ao listar vistorias:', error)
       return { success: false, error: 'Erro interno do servidor' }
     }
   },
@@ -1375,6 +1391,87 @@ export const vistoriasService = {
       return { success: true, data: proximoCodigo }
     } catch (error) {
       console.error('Erro ao gerar próximo código:', error)
+      return { success: false, error: 'Erro interno do servidor' }
+    }
+  },
+
+  // 🚧 Função temporária para investigar a vistoria por código
+  async buscarVistoriaPorCodigo(codigo) {
+    try {
+      const { data, error } = await supabase
+        .from('vistorias')
+        .select(`
+          *,
+          imobiliarias:imobiliaria_id(id, nome),
+          vistoriadores:vistoriador_id(id, nome),
+          tipos_imoveis:tipo_imovel_id(id, nome),
+          tipos_vistorias:tipo_vistoria_id(id, nome),
+          tipos_mobilia:tipo_mobilia_id(id, nome)
+        `)
+        .eq('codigo', codigo)
+        .single()
+
+      if (error) {
+        console.error('Erro ao buscar vistoria por código:', error)
+        return { success: false, error: 'Vistoria não encontrada' }
+      }
+
+      return { success: true, data }
+    } catch (error) {
+      console.error('Erro ao buscar vistoria por código:', error)
+      return { success: false, error: 'Erro interno do servidor' }
+    }
+  },
+
+  // 🚧 Função para buscar vistorias órfãs (que não pertencem ao admin atual)
+  async buscarVistoriasOrfas(adminUserId) {
+    try {
+      console.log('🔍 [SERVIÇO] Buscando vistorias órfãs para admin:', adminUserId);
+      
+      const { data, error } = await supabase
+        .from('vistorias')
+        .select(`
+          id, codigo, usuario_id, vistoriador_id, endereco, area_imovel,
+          imobiliarias:imobiliaria_id(nome),
+          vistoriadores:vistoriador_id(nome)
+        `)
+        .eq('ativo', true)
+        .neq('usuario_id', adminUserId) // Vistorias que NÃO pertencem ao admin atual
+        .order('codigo', { ascending: false })
+
+      if (error) {
+        console.error('❌ [SERVIÇO] Erro ao buscar vistorias órfãs:', error)
+        return { success: false, error: 'Erro ao buscar vistorias órfãs' }
+      }
+
+      console.log(`✅ [SERVIÇO] Encontradas ${data.length} vistorias órfãs`);
+      return { success: true, data: data || [] }
+    } catch (error) {
+      console.error('❌ [SERVIÇO] Erro geral ao buscar vistorias órfãs:', error)
+      return { success: false, error: 'Erro interno do servidor' }
+    }
+  },
+
+  // 🚧 Função para corrigir vistorias órfãs (transferir propriedade para o admin)
+  async corrigirVistoriasOrfas(vistoriasIds, adminUserId) {
+    try {
+      console.log('🔧 [SERVIÇO] Corrigindo vistorias órfãs:', vistoriasIds.length, 'vistorias');
+      
+      const { data, error } = await supabase
+        .from('vistorias')
+        .update({ usuario_id: adminUserId })
+        .in('id', vistoriasIds)
+        .select('id, codigo')
+
+      if (error) {
+        console.error('❌ [SERVIÇO] Erro ao corrigir vistorias órfãs:', error)
+        return { success: false, error: 'Erro ao corrigir vistorias órfãs' }
+      }
+
+      console.log(`✅ [SERVIÇO] ${data.length} vistorias corrigidas com sucesso`);
+      return { success: true, data: data || [] }
+    } catch (error) {
+      console.error('❌ [SERVIÇO] Erro geral ao corrigir vistorias órfãs:', error)
       return { success: false, error: 'Erro interno do servidor' }
     }
   }

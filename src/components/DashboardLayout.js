@@ -11,32 +11,58 @@ import {
 const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [userExplicitlyToggled, setUserExplicitlyToggled] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Detectar mudanças no tamanho da tela
+  // Detectar mudanças no tamanho da tela com debounce
   useEffect(() => {
+    let timeoutId = null;
+    
     const handleResize = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
-      
-      // Automaticamente fechar sidebar no mobile
-      if (mobile) {
-        setSidebarOpen(false);
-      } else {
-        setSidebarOpen(true);
+      // Clear timeout anterior
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
+      
+      // Debounce de 150ms para evitar execução excessiva
+      timeoutId = setTimeout(() => {
+        const mobile = window.innerWidth <= 768;
+        const wasMobile = isMobile;
+        setIsMobile(mobile);
+        
+        // Só alterar estado da sidebar se houve mudança real de layout
+        if (wasMobile !== mobile) {
+          if (mobile) {
+            // Sempre fechar sidebar no mobile, independente de ação do usuário
+            setSidebarOpen(false);
+            setUserExplicitlyToggled(false);
+          } else {
+            // No desktop, abrir sidebar apenas se usuário não fez toggle manual
+            if (!userExplicitlyToggled) {
+              setSidebarOpen(true);
+            }
+          }
+        }
+      }, 150);
     };
 
     window.addEventListener('resize', handleResize);
     handleResize(); // Executar na inicialização
 
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isMobile, userExplicitlyToggled]);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
+    // Marcar que usuário fez toggle explícito
+    setUserExplicitlyToggled(true);
   };
 
   const navigateTo = (path) => {
@@ -44,6 +70,7 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
     // Fechar sidebar ao navegar no mobile
     if (isMobile) {
       setSidebarOpen(false);
+      setUserExplicitlyToggled(false);
     }
   };
 
@@ -69,11 +96,15 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
 
   // Overlay para mobile quando sidebar está aberta
   const renderOverlay = () => {
-    if (isMobile && sidebarOpen) {
+    // 🔒 Proteção: overlay só aparece no mobile se sidebar foi aberta explicitamente
+    if (isMobile && sidebarOpen && userExplicitlyToggled) {
       return (
         <div 
           className="sidebar-overlay" 
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => {
+            setSidebarOpen(false);
+            setUserExplicitlyToggled(false);
+          }}
         />
       );
     }
@@ -82,14 +113,22 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
 
   // Sidebar para desktop e mobile
   const renderSidebar = () => {
+    // 🔒 Proteção extra: no mobile, sidebar só abre por ação explícita do usuário
+    const shouldShowSidebar = isMobile ? (sidebarOpen && userExplicitlyToggled) : sidebarOpen;
+    
     return (
-      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''} ${isMobile ? 'sidebar-mobile' : 'sidebar-desktop'}`}>
+      <div className={`sidebar ${shouldShowSidebar ? 'sidebar-open' : ''} ${isMobile ? 'sidebar-mobile' : 'sidebar-desktop'}`}>
         <div className="sidebar-header">
           <h3>Vistorias</h3>
           <Button 
             variant="link" 
             className="sidebar-toggle" 
-            onClick={toggleSidebar}
+            onClick={() => {
+              setSidebarOpen(false);
+              if (isMobile) {
+                setUserExplicitlyToggled(false);
+              }
+            }}
           >
             <FontAwesomeIcon icon={faTimes} />
           </Button>
