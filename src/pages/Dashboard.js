@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Alert, Spinner, Nav, Tab } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faSearch, faTrash, faEdit, faMapMarkerAlt, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes, faSync, faFileImage, faDownload } from '@fortawesome/free-solid-svg-icons';
-import html2canvas from 'html2canvas';
+import { faPlus, faSearch, faTrash, faEdit, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes, faSync, faFilePdf } from '@fortawesome/free-solid-svg-icons';
+
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import DashboardLayout from '../components/DashboardLayout';
 import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService, imagensVistoriaService } from '../lib/supabase';
 
@@ -449,183 +451,7 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
   );
 };
 
-// 📄 Componente de Relatório formatado para A4
-const RelatorioVistorias = ({ 
-  vistorias, 
-  usuarioLogado, 
-  filtros,
-  isVistoriadorView = false 
-}) => {
-  const formatDate = (dateString) => {
-    const date = new Date(dateString + 'T00:00:00');
-    return date.toLocaleDateString('pt-BR');
-  };
 
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(value || 0);
-  };
-
-  const calcularTotalGeral = () => {
-    return vistorias.reduce((total, vistoria) => {
-      if (isVistoriadorView) {
-        // Para vistoriador, calcular remuneração
-        const valorUnitario = 0.5; // Valor padrão, seria bom pegar do sistema
-        const consumo = parseFloat(vistoria.consumo_calculado) || 0;
-        return total + (valorUnitario * consumo);
-      } else {
-        // Para admin, valor monetário total
-        return total + (parseFloat(vistoria.valor_monetario) || 0);
-      }
-    }, 0);
-  };
-
-  const agora = new Date();
-  const dataHoraRelatorio = agora.toLocaleString('pt-BR');
-
-  return (
-    <div style={{
-      width: '794px', // A4 width in pixels at 96 DPI
-      minHeight: '1123px', // A4 height in pixels at 96 DPI
-      padding: '40px',
-      backgroundColor: 'white',
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '12px',
-      lineHeight: '1.4',
-      color: '#000'
-    }}>
-      {/* Cabeçalho do Relatório */}
-      <div style={{ textAlign: 'center', marginBottom: '30px', borderBottom: '2px solid #0d6efd', paddingBottom: '20px' }}>
-        <h1 style={{ color: '#0d6efd', margin: '0 0 10px 0', fontSize: '24px', fontWeight: 'bold' }}>
-          Controle de Vistorias
-        </h1>
-        <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#333' }}>
-          {isVistoriadorView ? 'Relatório de Remuneração - Vistoriador' : 'Relatório de Vistorias - Administração'}
-        </h2>
-        <div style={{ fontSize: '14px', color: '#666' }}>
-          <div><strong>Usuário:</strong> {usuarioLogado?.nome || 'N/A'}</div>
-          <div><strong>Data/Hora:</strong> {dataHoraRelatorio}</div>
-          <div><strong>Total de registros:</strong> {vistorias.length}</div>
-        </div>
-      </div>
-
-      {/* Filtros Aplicados */}
-      {(filtros.texto || filtros.dataInicio || filtros.dataFim || filtros.vistoriador) && (
-        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', border: '1px solid #ddd', borderRadius: '5px' }}>
-          <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#495057' }}>Filtros Aplicados:</h3>
-          {filtros.texto && <div><strong>Busca:</strong> {filtros.texto}</div>}
-          {filtros.dataInicio && <div><strong>Data Início:</strong> {formatDate(filtros.dataInicio)}</div>}
-          {filtros.dataFim && <div><strong>Data Fim:</strong> {formatDate(filtros.dataFim)}</div>}
-          {filtros.vistoriador && <div><strong>Vistoriador:</strong> {filtros.vistoriador}</div>}
-        </div>
-      )}
-
-      {/* Tabela de Vistorias */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
-        <thead>
-          <tr style={{ backgroundColor: '#0d6efd', color: 'white' }}>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Código</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Imobiliária</th>
-            {usuarioLogado?.tipo !== 'vistoriador' && (
-              <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Vistoriador</th>
-            )}
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Data</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Tipo</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Área</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Mobília</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Consumo</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>Endereço</th>
-            <th style={{ border: '1px solid #ddd', padding: '8px', fontSize: '11px' }}>
-              {isVistoriadorView ? 'Remuneração' : 'Valor'}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {vistorias.map((vistoria, index) => (
-            <tr key={vistoria.id} style={{ backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white' }}>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
-                <strong>{vistoria.codigo}</strong>
-                {vistoria.is_express && <div style={{ color: '#ffc107', fontSize: '8px' }}>⚡ EXPRESS</div>}
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
-                {vistoria.imobiliarias?.nome || 'N/A'}
-              </td>
-              {usuarioLogado?.tipo !== 'vistoriador' && (
-                <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
-                  {vistoria.vistoriadores?.nome ? 
-                    vistoria.vistoriadores.nome.split(' ').slice(0, 2).join(' ') : 
-                    'N/A'
-                  }
-                </td>
-              )}
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
-                {formatDate(vistoria.data_vistoria)}
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
-                {vistoria.tipos_imoveis?.nome || 'N/A'}
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
-                {vistoria.area_imovel}m²
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px' }}>
-                {vistoria.tipos_mobilia?.nome || 'N/A'}
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'center' }}>
-                <strong>{parseFloat(vistoria.consumo_calculado).toFixed(1)}</strong>
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '9px' }}>
-                {vistoria.endereco.length > 50 ? vistoria.endereco.substring(0, 50) + '...' : vistoria.endereco}
-              </td>
-              <td style={{ border: '1px solid #ddd', padding: '6px', fontSize: '10px', textAlign: 'right' }}>
-                {isVistoriadorView ? (
-                  <strong style={{ color: '#28a745' }}>
-                    {formatCurrency(0.5 * parseFloat(vistoria.consumo_calculado))}
-                  </strong>
-                ) : (
-                  <strong style={{ color: '#0d6efd' }}>
-                    {formatCurrency(vistoria.valor_monetario)}
-                  </strong>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* Resumo Total */}
-      <div style={{ 
-        marginTop: '20px', 
-        padding: '15px', 
-        backgroundColor: '#e9ecef', 
-        border: '2px solid #0d6efd', 
-        borderRadius: '5px',
-        textAlign: 'right'
-      }}>
-        <h3 style={{ margin: '0', fontSize: '16px', color: '#0d6efd' }}>
-          {isVistoriadorView ? 'Total de Remuneração: ' : 'Total Geral: '}
-          <span style={{ color: isVistoriadorView ? '#28a745' : '#0d6efd' }}>
-            {formatCurrency(calcularTotalGeral())}
-          </span>
-        </h3>
-      </div>
-
-      {/* Rodapé */}
-      <div style={{ 
-        marginTop: '30px', 
-        paddingTop: '20px', 
-        borderTop: '1px solid #ddd', 
-        textAlign: 'center',
-        fontSize: '10px',
-        color: '#666'
-      }}>
-        <div>Relatório gerado automaticamente pelo Sistema de Controle de Vistorias</div>
-        <div>© {new Date().getFullYear()} - Todos os direitos reservados</div>
-      </div>
-    </div>
-  );
-};
 
 // 🆕 Componente para tabela de vistorias (reutilizável para admin e vistoriador)
 const TabelaVistorias = ({ 
@@ -814,7 +640,6 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   
   // Estados para geração de relatório
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
-  const relatorioRef = useRef(null);
 
   // Carregamento de dados do Supabase
   useEffect(() => {
@@ -1354,7 +1179,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
   };
 
-  // 📄 Função para gerar relatório em imagem
+  // 📄 Função para gerar relatório em PDF
   const handleGerarRelatorio = async (isVistoriadorView = false) => {
     if (vistoriasFiltradas.length === 0) {
       alert('Não há vistorias para gerar o relatório!');
@@ -1364,43 +1189,189 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     try {
       setGerandoRelatorio(true);
 
-      // Aguardar um momento para garantir que o componente seja renderizado
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Criar um novo documento PDF
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      
+      // Configurações de formatação
+      const formatDate = (dateString) => {
+        const date = new Date(dateString + 'T00:00:00');
+        return date.toLocaleDateString('pt-BR');
+      };
 
-      if (!relatorioRef.current) {
-        throw new Error('Componente de relatório não encontrado');
+      const formatCurrency = (value) => {
+        return new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL'
+        }).format(value || 0);
+      };
+
+      const calcularTotalGeral = () => {
+        return vistoriasFiltradas.reduce((total, vistoria) => {
+          if (isVistoriadorView) {
+            // Para vistoriador, calcular remuneração
+            const valorUnitario = 0.5; // Valor padrão
+            const consumo = parseFloat(vistoria.consumo_calculado) || 0;
+            return total + (valorUnitario * consumo);
+          } else {
+            // Para admin, valor monetário total
+            return total + (parseFloat(vistoria.valor_monetario) || 0);
+          }
+        }, 0);
+      };
+
+      // Cabeçalho do relatório
+      doc.setFontSize(20);
+      doc.setTextColor(13, 110, 253); // Cor azul do sistema
+      doc.text('Controle de Vistorias', pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(16);
+      doc.setTextColor(51, 51, 51);
+      const tituloRelatorio = isVistoriadorView 
+        ? 'Relatório de Remuneração - Vistoriador' 
+        : 'Relatório de Vistorias - Administração';
+      doc.text(tituloRelatorio, pageWidth / 2, 30, { align: 'center' });
+
+      // Informações do relatório em layout horizontal
+      const agora = new Date();
+      const dataHoraRelatorio = agora.toLocaleString('pt-BR');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(102, 102, 102);
+      
+      // Lado esquerdo - Informações do usuário
+      doc.text(`Usuário: ${usuarioLogado?.nome || 'N/A'}`, 20, 45);
+      doc.text(`Data/Hora: ${dataHoraRelatorio}`, 20, 50);
+      doc.text(`Total de registros: ${vistoriasFiltradas.length}`, 20, 55);
+
+      // Lado direito - Filtros aplicados (se houver)
+      let yPosition = 60;
+      if (filtroTexto || dataInicio || dataFim || vistoriadorFiltro) {
+        doc.setFontSize(11);
+        doc.setTextColor(73, 80, 87);
+        doc.text('Filtros Aplicados:', pageWidth - 90, 45);
+        
+        let rightYPos = 50;
+        doc.setFontSize(10);
+        doc.setTextColor(102, 102, 102);
+        
+        if (filtroTexto) {
+          doc.text(`Busca: ${filtroTexto}`, pageWidth - 90, rightYPos);
+          rightYPos += 4;
+        }
+        if (dataInicio) {
+          doc.text(`Data Início: ${formatDate(dataInicio)}`, pageWidth - 90, rightYPos);
+          rightYPos += 4;
+        }
+        if (dataFim) {
+          doc.text(`Data Fim: ${formatDate(dataFim)}`, pageWidth - 90, rightYPos);
+          rightYPos += 4;
+        }
+        if (vistoriadorFiltro) {
+          doc.text(`Vistoriador: ${vistoriadorFiltro}`, pageWidth - 90, rightYPos);
+          rightYPos += 4;
+        }
+        yPosition = Math.max(60, rightYPos + 5);
       }
 
-      // Capturar imagem do componente de relatório
-      const canvas = await html2canvas(relatorioRef.current, {
-        width: 794,
-        height: 1123,
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false
+      // Preparar dados da tabela
+      const tableColumns = isVistoriadorView 
+        ? ['Código', 'Imobiliária', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Remuneração']
+        : ['Código', 'Imobiliária', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Valor'];
+
+      const tableData = vistoriasFiltradas.map(vistoria => {
+        const endereco = vistoria.endereco && vistoria.endereco.length > 35 
+          ? vistoria.endereco.substring(0, 35) + '...' 
+          : vistoria.endereco || 'N/A';
+        
+        const baseData = [
+          vistoria.codigo,
+          vistoria.imobiliarias?.nome || 'N/A',
+          formatDate(vistoria.data_vistoria),
+          vistoria.tipos_imoveis?.nome || 'N/A',
+          `${vistoria.area_imovel}m²`,
+          vistoria.tipos_mobilia?.nome || 'N/A',
+          vistoria.consumo_calculado || '0',
+          endereco
+        ];
+
+        if (isVistoriadorView) {
+          const remuneracao = 0.5 * parseFloat(vistoria.consumo_calculado);
+          return [...baseData, formatCurrency(remuneracao)];
+        } else {
+          return [...baseData, formatCurrency(vistoria.valor_monetario)];
+        }
       });
 
-      // Converter para imagem e baixar
-      const imgData = canvas.toDataURL('image/png', 1.0);
-      
-      const link = document.createElement('a');
-      const agora = new Date();
-      const timestamp = agora.toISOString().slice(0, 19).replace(/:/g, '-');
-      const tipoRelatorio = isVistoriadorView ? 'remuneracao' : 'vistorias';
-      const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}.png`;
-      
-      link.download = nomeArquivo;
-      link.href = imgData;
-      link.click();
+      // Gerar tabela com paginação automática
+      doc.autoTable({
+        head: [tableColumns],
+        body: tableData,
+        startY: yPosition,
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+        },
+        headStyles: {
+          fillColor: [13, 110, 253],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 12 }, // Código
+          1: { cellWidth: 22 }, // Imobiliária
+          2: { halign: 'center', cellWidth: 18 }, // Data
+          3: { cellWidth: 18 }, // Tipo
+          4: { halign: 'center', cellWidth: 12 }, // Área
+          5: { cellWidth: 18 }, // Status
+          6: { halign: 'center', cellWidth: 12 }, // Consumo
+          7: { cellWidth: 45, fontSize: 7 }, // Endereço
+          8: { halign: 'right', cellWidth: 20 } // Remuneração/Valor
+        },
+        margin: { top: 10, bottom: 30 },
+        didDrawPage: function (data) {
+          // Rodapé em cada página
+          doc.setFontSize(8);
+          doc.setTextColor(102, 102, 102);
+          doc.text(
+            'Relatório gerado automaticamente pelo Sistema de Controle de Vistorias',
+            pageWidth / 2,
+            pageHeight - 15,
+            { align: 'center' }
+          );
+          doc.text(
+            `© ${new Date().getFullYear()} - Todos os direitos reservados`,
+            pageWidth / 2,
+            pageHeight - 10,
+            { align: 'center' }
+          );
+        }
+      });
 
-      setSuccessMessage(`Relatório gerado e baixado com sucesso: ${nomeArquivo}`);
+      // Adicionar total no final
+      const finalY = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(14);
+      doc.setTextColor(13, 110, 253);
+      const totalLabel = isVistoriadorView ? 'Total de Remuneração: ' : 'Total Geral: ';
+      const totalValue = formatCurrency(calcularTotalGeral());
+      
+      doc.text(totalLabel + totalValue, pageWidth - 20, finalY, { align: 'right' });
+
+      // Salvar o PDF
+      const agora2 = new Date();
+      const timestamp = agora2.toISOString().slice(0, 19).replace(/:/g, '-');
+      const tipoRelatorio = isVistoriadorView ? 'remuneracao' : 'vistorias';
+      const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}.pdf`;
+      
+      doc.save(nomeArquivo);
+
+      setSuccessMessage(`Relatório PDF gerado e baixado com sucesso: ${nomeArquivo}`);
       setTimeout(() => setSuccessMessage(''), 5000);
 
     } catch (error) {
-      console.error('Erro ao gerar relatório:', error);
-      setErrorMessage('Erro ao gerar relatório. Tente novamente.');
+      console.error('Erro ao gerar relatório PDF:', error);
+      setErrorMessage('Erro ao gerar relatório PDF. Tente novamente.');
       setTimeout(() => setErrorMessage(''), 5000);
     } finally {
       setGerandoRelatorio(false);
@@ -1531,18 +1502,6 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
           <Col>
             <Card className="shadow-sm">
               <Card.Body className="p-3">
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                  <div>
-                    <h4 className="text-primary mb-1">
-                      <FontAwesomeIcon icon={faPlus} className="me-2" />
-                      Controle de Vistorias
-                    </h4>
-                    <small className="text-muted">
-                      {vistoriasFiltradas.length} vistorias encontradas
-                    </small>
-                  </div>
-                </div>
-
                 {/* 🆕 Navegação por Tabs */}
                 <Tab.Container activeKey={activeTab} onSelect={(key) => setActiveTab(key)}>
                   <Nav variant="tabs" className="mb-3">
@@ -1552,6 +1511,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                         <Nav.Link eventKey="administrador">
                           <FontAwesomeIcon icon={faUserTie} className="me-2" />
                           Dashboard Administrador
+                          <span className="text-muted ms-2">({vistoriasFiltradas.length} vistorias)</span>
                         </Nav.Link>
                       </Nav.Item>
                     )}
@@ -1559,6 +1519,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                       <Nav.Link eventKey="vistoriador">
                         <FontAwesomeIcon icon={faUsers} className="me-2" />
                         Dashboard Vistoriador
+                        <span className="text-muted ms-2">({vistoriasFiltradas.length} vistorias)</span>
                       </Nav.Link>
                     </Nav.Item>
                   </Nav>
@@ -1569,9 +1530,6 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                       <Tab.Pane eventKey="administrador">
                       <div className="d-flex justify-content-between align-items-center mb-3">
                         <div>
-                          <h5 className="text-primary mb-1">
-                            Dashboard de Vistorias
-                          </h5>
                           <small className="text-muted">
                             Visualização de TODAS as vistorias - Criar, editar e excluir
                           </small>
@@ -1582,13 +1540,13 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             variant="outline-info" 
                             size="sm"
                             onClick={() => handleGerarRelatorio(false)}
-                            title="Gerar relatório em imagem A4"
+                            title="Gerar relatório em PDF"
                             disabled={loading || gerandoRelatorio || vistoriasFiltradas.length === 0}
                           >
                             {gerandoRelatorio ? (
                               <Spinner animation="border" size="sm" />
                             ) : (
-                              <FontAwesomeIcon icon={faFileImage} />
+                              <FontAwesomeIcon icon={faFilePdf} />
                             )}
                           </Button>
 
@@ -1717,9 +1675,6 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                     <Tab.Pane eventKey="vistoriador">
                       <div className="d-flex justify-content-between align-items-center mb-3">
                         <div>
-                          <h5 className="text-primary mb-1">
-                            Dashboard do Vistoriador
-                          </h5>
                           <small className="text-muted">
                             Visualização apenas das SUAS vistorias - Edição permitida
                           </small>
@@ -1730,14 +1685,14 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             variant="outline-success" 
                             size="sm"
                             onClick={() => handleGerarRelatorio(true)}
-                            title="Gerar relatório de remuneração em imagem A4"
+                            title="Gerar relatório de remuneração em PDF"
                             disabled={loading || gerandoRelatorio || vistoriasFiltradas.length === 0}
                           >
                             {gerandoRelatorio ? (
                               <Spinner animation="border" size="sm" />
                             ) : (
                               <>
-                                <FontAwesomeIcon icon={faFileImage} className="me-1" />
+                                <FontAwesomeIcon icon={faFilePdf} className="me-1" />
                                 Relatório
                               </>
                             )}
@@ -2327,30 +2282,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
           </Modal.Footer>
         </Modal>
 
-        {/* Componente de relatório oculto para captura */}
-        {gerandoRelatorio && (
-          <div 
-            ref={relatorioRef}
-            style={{ 
-              position: 'absolute', 
-              left: '-9999px', 
-              top: '0',
-              zIndex: -1
-            }}
-          >
-            <RelatorioVistorias 
-              vistorias={vistoriasFiltradas}
-              usuarioLogado={usuarioLogado}
-              filtros={{
-                texto: filtroTexto,
-                dataInicio: dataInicio,
-                dataFim: dataFim,
-                vistoriador: vistoriadorFiltro
-              }}
-              isVistoriadorView={activeTab === 'vistoriador'}
-            />
-          </div>
-        )}
+
       </Container>
     </DashboardLayout>
   );
