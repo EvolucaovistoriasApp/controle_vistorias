@@ -5,7 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faBars, faTimes, faHome, 
   faBuilding, faHouseUser, faUserTie, 
-  faBoxes, faSignOutAlt, faUser
+  faBoxes, faSignOutAlt, faUser, faCalculator, faChartLine
 } from '@fortawesome/free-solid-svg-icons';
 
 const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
@@ -86,6 +86,8 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
     { path: '/tipos', icon: faHouseUser, label: 'Tipos', roles: ['admin'] },
     { path: '/vistoriadores', icon: faUserTie, label: 'Vistoriadores', roles: ['admin'] },
     { path: '/consumo', icon: faBoxes, label: 'Consumo', roles: ['admin'] },
+    { path: '/orcamento', icon: faCalculator, label: 'Orçamento', roles: ['admin'] },
+    { path: '/balanco', icon: faChartLine, label: 'Balanço', roles: ['admin'] },
     { path: '/perfil', icon: faUser, label: 'Meu Perfil', roles: ['admin', 'vistoriador', 'imobiliaria'] }
   ];
 
@@ -160,25 +162,7 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
     );
   };
 
-  // Bottom Navigation para mobile
-  const renderBottomNavigation = () => {
-    if (!isMobile) return null;
-
-    return (
-      <div className="bottom-navigation">
-        {menuItems.map((item) => (
-          <button
-            key={item.path}
-            className={`bottom-nav-item ${isActive(item.path) ? 'active' : ''}`}
-            onClick={() => navigateTo(item.path)}
-          >
-            <FontAwesomeIcon icon={item.icon} />
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </div>
-    );
-  };
+  // Bottom Navigation removida - menu hambúrguer já fornece acesso ao menu
 
   return (
     <div className={`dashboard-wrapper ${isMobile ? 'mobile-layout' : 'desktop-layout'}`}>
@@ -228,9 +212,6 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
           {children}
         </div>
       </div>
-
-      {/* Bottom Navigation para mobile */}
-      {renderBottomNavigation()}
     </div>
   );
 };

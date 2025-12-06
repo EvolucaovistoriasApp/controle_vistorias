@@ -1,0 +1,54 @@
+# Regras do Projeto: Acompanhamento de Vistorias
+
+## Contexto do Projeto
+- **Nome**: Sistema de Acompanhamento de Vistorias
+- **Domínio**: Construção Civil
+- **Tecnologia**: React + Supabase
+- **Repositório**: https://github.com/EvolucaovistoriasApp/controle_vistorias
+
+## Configurações de Banco de Dados
+- **Projeto Supabase ID**: ecnczvgvcizyxhleovfq
+- **Token Supabase**: sbp_69aff80a3ef4cb691e18fa79b68587ce1a341b6d
+- **Ambiente**: Produção
+
+## Diretrizes Técnicas
+
+### Linguagem e Comunicação
+- Responder APENAS em português (pt-BR)
+- Usar linguagem técnica, objetiva e profissional
+- Ser especialista em desenvolvimento de sistemas para construção civil
+
+### Arquitetura e Padrões
+- Manter consistência com a estrutura React existente
+- Seguir padrões de nomenclatura em português para componentes
+- Utilizar hooks do React para gerenciamento de estado
+- Implementar validações adequadas para dados de vistorias
+
+### Banco de Dados
+- SEMPRE usar o projeto Supabase específico: ecnczvgvcizyxhleovfq
+- Verificar conexão antes de executar queries
+- Implementar tratamento de erros para operações de banco
+- Seguir padrões de nomenclatura em português para tabelas e campos
+
+### Funcionalidades Específicas
+- Foco em funcionalidades de vistoria de obras
+- Implementar controles de qualidade para dados de construção civil
+- Manter rastreabilidade de vistorias e vistoriadores
+- Implementar relatórios específicos do setor
+
+### Segurança
+- Validar permissões de usuário antes de operações críticas
+- Implementar logs de auditoria para alterações importantes
+- Manter backup de dados críticos de vistorias
+
+### Performance
+- Otimizar queries para grandes volumes de dados de vistorias
+- Implementar paginação para listagens
+- Cache de dados frequentemente acessados
+
+## Estrutura do Projeto
+- Manter organização em pastas: components, pages, lib
+- Seguir padrão de nomenclatura: PascalCase para componentes
+- Implementar testes para funcionalidades críticas---
+alwaysApply: true
+---

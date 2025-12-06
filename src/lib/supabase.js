@@ -412,12 +412,13 @@ export const creditosService = {
   },
 
   // 🔄 Sincronizar créditos gastos com base nas vistorias reais (automático e transparente)
+  // 🆕 Considera apenas vistorias com data passada ou atual (já executadas)
   async sincronizarCreditosGastos(imobiliariaId) {
     try {
       // Buscar todas as vistorias ativas da imobiliária
       const { data: vistorias, error: vistoriasError } = await supabase
         .from('vistorias')
-        .select('consumo_calculado')
+        .select('consumo_calculado, data_vistoria')
         .eq('imobiliaria_id', imobiliariaId)
         .eq('ativo', true)
       
@@ -426,9 +427,21 @@ export const creditosService = {
         return { success: false, error: 'Erro ao buscar vistorias' }
       }
 
-      // Somar todos os consumos calculados
+      // 🆕 Data atual (sem horas, apenas data)
+      const hoje = new Date()
+      hoje.setHours(0, 0, 0, 0)
+
+      // Somar apenas os consumos de vistorias já executadas (data passada ou atual)
       const totalConsumoReal = vistorias.reduce((total, vistoria) => {
-        return total + parseFloat(vistoria.consumo_calculado)
+        // Verificar se a data da vistoria já passou ou é hoje
+        const dataVistoria = new Date(vistoria.data_vistoria + 'T00:00:00')
+        dataVistoria.setHours(0, 0, 0, 0)
+        
+        // Só contar se a data da vistoria já passou ou é hoje
+        if (dataVistoria <= hoje) {
+          return total + parseFloat(vistoria.consumo_calculado || 0)
+        }
+        return total
       }, 0)
 
       // Buscar o valor atual de créditos gastos
@@ -1233,15 +1246,33 @@ export const vistoriasService = {
         valor_unitario_vistoriador: vistoriador.valor_unitario_credito || 0 // 🆕 Salvar valor atual
       }
 
-      // Primeiro, debitar os créditos da imobiliária (usando valor exato sem arredondamento)
-      const consumoCreditos = parseFloat(dadosVistoria.consumo_calculado)
-      const debitoResult = await creditosService.debitarCreditos(
-        dadosVistoria.imobiliaria_id, 
-        consumoCreditos
-      )
+      // 🆕 Verificar se a data da vistoria é futura
+      const hoje = new Date()
+      hoje.setHours(0, 0, 0, 0)
+      const dataVistoria = new Date(dadosVistoria.data_vistoria + 'T00:00:00')
+      dataVistoria.setHours(0, 0, 0, 0)
+      const isDataFutura = dataVistoria > hoje
+      const consumoCreditos = parseFloat(dadosVistoria.consumo_calculado || 0)
 
-      if (!debitoResult.success) {
-        return { success: false, error: debitoResult.error }
+      // 🆕 Só debitar créditos se:
+      // 1. A data da vistoria já passou ou é hoje (não é futura)
+      // 2. E o consumo for maior que zero
+      let debitoResult = { success: true, creditosInsuficientes: false, creditosDisponiveis: 0, novoSaldo: 0 }
+      
+      if (!isDataFutura && consumoCreditos > 0) {
+        // Debitar os créditos da imobiliária (usando valor exato sem arredondamento)
+        debitoResult = await creditosService.debitarCreditos(
+          dadosVistoria.imobiliaria_id, 
+          consumoCreditos
+        )
+
+        if (!debitoResult.success) {
+          return { success: false, error: debitoResult.error }
+        }
+      } else if (isDataFutura) {
+        console.log(`📅 Vistoria com data futura (${dadosVistoria.data_vistoria}). Créditos não serão debitados até a data chegar.`)
+      } else if (consumoCreditos === 0) {
+        console.log(`ℹ️ Vistoria com consumo zero. Créditos não serão debitados.`)
       }
 
       // Se o débito foi bem-sucedido, criar a vistoria
@@ -1274,15 +1305,24 @@ export const vistoriasService = {
         return { success: false, error: 'Erro ao criar vistoria' }
       }
 
-      console.log(`✅ Vistoria criada e ${consumoCreditos} créditos debitados da imobiliária`)
+      // 🆕 Mensagem apropriada baseada na situação
+      if (isDataFutura) {
+        console.log(`✅ Vistoria criada (data futura: ${dadosVistoria.data_vistoria}). Créditos serão debitados quando a data chegar.`)
+      } else if (consumoCreditos === 0) {
+        console.log(`✅ Vistoria criada com consumo zero. Nenhum crédito debitado.`)
+      } else {
+        console.log(`✅ Vistoria criada e ${consumoCreditos} créditos debitados da imobiliária`)
+      }
       
       // 🆕 Incluir informações sobre créditos insuficientes na resposta
       return { 
         success: true, 
         data,
-        creditosInsuficientes: debitoResult.creditosInsuficientes,
-        creditosDisponiveis: debitoResult.creditosDisponiveis,
-        novoSaldo: debitoResult.novoSaldo
+        creditosInsuficientes: debitoResult.creditosInsuficientes || false,
+        creditosDisponiveis: debitoResult.creditosDisponiveis || 0,
+        novoSaldo: debitoResult.novoSaldo || 0,
+        dataFutura: isDataFutura, // 🆕 Indicar se a data é futura
+        consumoZero: consumoCreditos === 0 // 🆕 Indicar se o consumo é zero
       }
     } catch (error) {
       console.error('Erro ao criar vistoria:', error)
@@ -1292,6 +1332,63 @@ export const vistoriasService = {
 
   async atualizarVistoria(id, dadosVistoria) {
     try {
+      // 🆕 Buscar a vistoria atual antes de atualizar para verificar mudanças
+      const { data: vistoriaAtual, error: getError } = await supabase
+        .from('vistorias')
+        .select('data_vistoria, consumo_calculado, imobiliaria_id')
+        .eq('id', id)
+        .single()
+
+      if (getError) {
+        console.error('Erro ao buscar vistoria atual:', getError)
+        return { success: false, error: 'Erro ao buscar vistoria atual' }
+      }
+
+      // 🆕 Verificar se precisa debitar créditos (data mudou de futura para passada/atual)
+      const hoje = new Date()
+      hoje.setHours(0, 0, 0, 0)
+      
+      const dataVistoriaAtual = new Date(vistoriaAtual.data_vistoria + 'T00:00:00')
+      dataVistoriaAtual.setHours(0, 0, 0, 0)
+      const eraDataFutura = dataVistoriaAtual > hoje
+      
+      const dataVistoriaNova = dadosVistoria.data_vistoria ? 
+        new Date(dadosVistoria.data_vistoria + 'T00:00:00') : 
+        dataVistoriaAtual
+      dataVistoriaNova.setHours(0, 0, 0, 0)
+      const agoraEhDataFutura = dataVistoriaNova > hoje
+      
+      const consumoAtual = parseFloat(vistoriaAtual.consumo_calculado || 0)
+      const consumoNovo = parseFloat(dadosVistoria.consumo_calculado || consumoAtual)
+      
+      // 🆕 Se a data mudou de futura para passada/atual E o consumo é maior que zero, debitar créditos
+      if (eraDataFutura && !agoraEhDataFutura && consumoNovo > 0) {
+        console.log(`📅 Data da vistoria passou! Debitando ${consumoNovo} créditos agora.`)
+        const debitoResult = await creditosService.debitarCreditos(
+          vistoriaAtual.imobiliaria_id,
+          consumoNovo
+        )
+        
+        if (!debitoResult.success) {
+          console.warn('⚠️ Erro ao debitar créditos após data passar:', debitoResult.error)
+          // Continua com a atualização mesmo se o débito falhar
+        }
+      }
+      // 🆕 Se o consumo mudou de zero para maior que zero E a data não é futura, debitar créditos
+      else if (consumoAtual === 0 && consumoNovo > 0 && !agoraEhDataFutura) {
+        console.log(`💰 Consumo mudou de zero para ${consumoNovo}. Debitando créditos.`)
+        const debitoResult = await creditosService.debitarCreditos(
+          vistoriaAtual.imobiliaria_id,
+          consumoNovo
+        )
+        
+        if (!debitoResult.success) {
+          console.warn('⚠️ Erro ao debitar créditos após consumo mudar:', debitoResult.error)
+          // Continua com a atualização mesmo se o débito falhar
+        }
+      }
+
+      // Atualizar a vistoria
       const { data, error } = await supabase
         .from('vistorias')
         .update(dadosVistoria)
@@ -1323,7 +1420,7 @@ export const vistoriasService = {
       // 🆕 Primeiro, obter os dados da vistoria para devolver os créditos
       const { data: vistoria, error: vistoriaError } = await supabase
         .from('vistorias')
-        .select('imobiliaria_id, consumo_calculado')
+        .select('imobiliaria_id, consumo_calculado, data_vistoria')
         .eq('id', id)
         .eq('ativo', true)
         .single()
@@ -1333,15 +1430,30 @@ export const vistoriasService = {
         return { success: false, error: 'Vistoria não encontrada' }
       }
 
-      // 🆕 Devolver os créditos à imobiliária (usando valor exato sem arredondamento)
-      const creditosParaDevolver = parseFloat(vistoria.consumo_calculado)
-      const creditoResult = await creditosService.creditarCreditos(
-        vistoria.imobiliaria_id, 
-        creditosParaDevolver
-      )
+      // 🆕 Verificar se a vistoria já foi executada (data passada ou atual)
+      const hoje = new Date()
+      hoje.setHours(0, 0, 0, 0)
+      const dataVistoria = new Date(vistoria.data_vistoria + 'T00:00:00')
+      dataVistoria.setHours(0, 0, 0, 0)
+      const jaFoiExecutada = dataVistoria <= hoje
+      const consumo = parseFloat(vistoria.consumo_calculado || 0)
 
-      if (!creditoResult.success) {
-        console.warn('Erro ao devolver créditos, mas continuando com exclusão:', creditoResult.error)
+      // 🆕 Só devolver créditos se a vistoria já foi executada E tinha consumo maior que zero
+      if (jaFoiExecutada && consumo > 0) {
+        const creditoResult = await creditosService.creditarCreditos(
+          vistoria.imobiliaria_id, 
+          consumo
+        )
+
+        if (!creditoResult.success) {
+          console.warn('Erro ao devolver créditos, mas continuando com exclusão:', creditoResult.error)
+        } else {
+          console.log(`✅ ${consumo} créditos devolvidos à imobiliária`)
+        }
+      } else if (!jaFoiExecutada) {
+        console.log(`ℹ️ Vistoria com data futura excluída. Nenhum crédito devolvido (não havia sido debitado).`)
+      } else if (consumo === 0) {
+        console.log(`ℹ️ Vistoria com consumo zero excluída. Nenhum crédito devolvido.`)
       }
 
       // 🆕 Excluir vistoria realmente do banco de dados
@@ -1355,7 +1467,7 @@ export const vistoriasService = {
         return { success: false, error: 'Erro ao excluir vistoria' }
       }
 
-      console.log(`✅ Vistoria excluída e ${creditosParaDevolver} créditos devolvidos à imobiliária`)
+      console.log(`✅ Vistoria excluída com sucesso`)
       return { success: true }
     } catch (error) {
       console.error('Erro ao excluir vistoria:', error)

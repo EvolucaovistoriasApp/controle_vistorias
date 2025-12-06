@@ -15,6 +15,15 @@ body {
   background-color: #f8f9fa;
   margin: 0;
   padding: 0;
+  overflow-x: hidden; /* Previne scroll horizontal */
+  width: 100%;
+  max-width: 100vw;
+}
+
+html {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
 }
 
 .auth-container {
@@ -86,7 +95,7 @@ body {
 
 .mobile-layout {
   /* Ajustes específicos para mobile */
-  padding-bottom: 70px; /* Espaço para bottom navigation */
+  /* Bottom navigation removida - menu hambúrguer fornece acesso */
 }
 
 .sidebar {
@@ -252,10 +261,47 @@ body {
 }
 
 .dashboard-content {
-  padding: 20px;
+  padding: 0; /* Padding removido pois o Container já tem o espaçamento correto */
 }
 
-/* Bottom Navigation - Mobile Only */
+/* Container principal do dashboard - alinhado com o header */
+.dashboard-container-main {
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* Remover padding padrão do Bootstrap Container fluid */
+.dashboard-container-main.container-fluid {
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+
+/* Remover padding do Row dentro do container principal */
+.dashboard-container-main .row {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* Remover padding das Cols dentro do container principal */
+.dashboard-container-main .col,
+.dashboard-container-main [class*="col-"] {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Garantir que o card não tenha margem lateral adicional */
+.dashboard-container-main .card {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* Bottom Navigation - REMOVIDA
+   A navegação inferior foi removida pois o menu hambúrguer já fornece acesso ao menu.
+   Estilos mantidos para referência futura caso seja necessário reativar.
+*/
+/*
 .bottom-navigation {
   position: fixed;
   bottom: 0;
@@ -309,6 +355,7 @@ body {
   text-align: center;
   line-height: 1;
 }
+*/
 
 /* Responsividade Geral */
 @media (max-width: 768px) {
@@ -322,17 +369,41 @@ body {
   }
   
   .dashboard-content {
-    padding: 15px;
-    margin-bottom: 20px; /* Espaço extra para bottom nav */
+    padding: 0; /* Padding removido pois o Container já tem o espaçamento correto */
+  }
+  
+  /* Container principal do dashboard - alinhado com o header em mobile */
+  .dashboard-container-main {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  /* Remover padding padrão do Bootstrap Container fluid em mobile */
+  .dashboard-container-main.container-fluid {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  
+  /* Remover padding do Row dentro do container principal em mobile */
+  .dashboard-container-main .row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  /* Remover padding das Cols dentro do container principal em mobile */
+  .dashboard-container-main .col,
+  .dashboard-container-main [class*="col-"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
   }
   
   .sidebar {
     width: 280px; /* Sidebar um pouco mais larga no mobile */
   }
   
-  .bottom-nav-item span {
-    font-size: 0.7rem;
-  }
+  /* Estilos de bottom navigation removidos */
 }
 
 @media (max-width: 480px) {
@@ -344,14 +415,7 @@ body {
     width: 260px;
   }
   
-  .bottom-nav-item {
-    min-width: 50px;
-    padding: 6px 8px;
-  }
-  
-  .bottom-nav-item span {
-    font-size: 0.65rem;
-  }
+  /* Estilos de bottom navigation removidos */
 }
 
 /* Melhorias gerais */
@@ -452,4 +516,199 @@ body {
 .submenu-item.active {
   background-color: rgba(255, 255, 255, 0.2);
   color: white;
+}
+
+/* Estilos para lista de vistorias em mobile */
+.vistorias-mobile-list {
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.vistorias-mobile-list .card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  box-sizing: border-box;
+}
+
+.vistorias-mobile-list .card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.vistorias-mobile-list .card-body {
+  padding: 12px !important;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+/* Ajustes para filtros em mobile */
+@media (max-width: 768px) {
+  /* Prevenir scroll horizontal globalmente */
+  * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  
+  .container-fluid,
+  .container,
+  .row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  
+  .col,
+  [class*="col-"] {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+  
+  .card {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  .card-body {
+    padding: 12px !important;
+    width: 100% !important;
+    overflow-x: hidden !important;
+  }
+  
+  .dashboard-filters-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  .dashboard-filters-mobile .input-group,
+  .dashboard-filters-mobile .form-control,
+  .dashboard-filters-mobile .form-select {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  
+  .dashboard-actions-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  .dashboard-actions-mobile .btn {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Ajustes para tabs em mobile */
+  .nav-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  .nav-tabs .nav-link {
+    white-space: nowrap;
+    font-size: 0.85rem;
+    padding: 8px 12px;
+    flex-shrink: 0;
+  }
+  
+  /* Ajustes para card de total em mobile */
+  .total-value-mobile {
+    text-align: center !important;
+    padding: 10px !important;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    width: 100% !important;
+    max-width: 100% !important;
+    word-break: break-word;
+  }
+  
+  /* Animação para mostrar/ocultar filtros */
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      max-height: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      max-height: 500px;
+      transform: translateY(0);
+    }
+  }
+  
+  .dashboard-filters-mobile {
+    overflow: hidden;
+  }
+  
+  /* Textos que não devem quebrar linha */
+  .text-truncate {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  
+  /* Garantir que todos os textos longos quebrem */
+  .small,
+  span,
+  div {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+  
+  /* Botões em mobile */
+  .btn {
+    white-space: normal !important;
+    word-wrap: break-word;
+    max-width: 100% !important;
+  }
+  
+  /* Inputs e selects */
+  .form-control,
+  .form-select,
+  .input-group {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  
+  /* Grid dentro dos cards */
+  .row.g-2 {
+    margin-left: -4px !important;
+    margin-right: -4px !important;
+  }
+  
+  .row.g-2 > [class*="col-"] {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
 }

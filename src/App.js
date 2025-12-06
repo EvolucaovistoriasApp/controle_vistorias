@@ -12,6 +12,8 @@ import Imobiliarias from './pages/Imobiliarias';
 import Tipos from './pages/Tipos';
 import Vistoriadores from './pages/Vistoriadores';
 import Consumo from './pages/Consumo';
+import Orcamento from './pages/Orcamento';
+import Balanco from './pages/Balanco';
 import Perfil from './pages/Perfil';
 
 function App() {
@@ -113,6 +115,22 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <Consumo deslogar={deslogar} usuarioLogado={usuarioLogado} />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/orcamento" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <Orcamento deslogar={deslogar} usuarioLogado={usuarioLogado} />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/balanco" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <Balanco deslogar={deslogar} usuarioLogado={usuarioLogado} />
               </ProtectedRoute>
             } 
           />

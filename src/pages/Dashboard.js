@@ -1,12 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Table, Badge, Form, InputGroup, Modal, Alert, Spinner, Nav, Tab } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faSearch, faTrash, faEdit, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes, faSync, faFilePdf } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch, faTrash, faEdit, faBolt, faUserTie, faUsers, faCamera, faExpand, faTimes, faSync, faFilePdf, faMapMarkerAlt, faCalendarAlt, faHome, faRuler, faBox, faBuilding, faFilter, faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
 
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import DashboardLayout from '../components/DashboardLayout';
 import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService, imagensVistoriaService } from '../lib/supabase';
+
+// Hook para detectar se está em mobile
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handler = (event) => setMatches(event.matches);
+    
+    // Adicionar listener
+    mediaQuery.addEventListener('change', handler);
+    
+    // Verificar imediatamente
+    setMatches(mediaQuery.matches);
+    
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+};
 
 // Componente para upload de imagens da trena a laser
 const ImageUploadTrena = ({ imagens, onImagensChange, maxImages = 2 }) => {
@@ -241,6 +261,19 @@ const ValorMonetarioVistoria = ({ vistoria }) => {
       try {
         setLoading(true);
         
+        // 🆕 Verificar se a data da vistoria já passou ou é hoje
+        const hoje = new Date()
+        hoje.setHours(0, 0, 0, 0)
+        const dataVistoria = new Date(vistoria.data_vistoria + 'T00:00:00')
+        dataVistoria.setHours(0, 0, 0, 0)
+        
+        // Se a data é futura, valor é zero
+        if (dataVistoria > hoje) {
+          setValorMonetario(0);
+          setLoading(false);
+          return;
+        }
+        
         let valorBase = 0;
         
         // Se a vistoria já tem valor_monetario salvo, usar esse valor
@@ -273,7 +306,7 @@ const ValorMonetarioVistoria = ({ vistoria }) => {
     };
 
     obterValor();
-  }, [vistoria.valor_monetario, vistoria.imobiliaria_id, vistoria.consumo_calculado, vistoria.desconto]);
+  }, [vistoria.valor_monetario, vistoria.imobiliaria_id, vistoria.consumo_calculado, vistoria.desconto, vistoria.data_vistoria]);
 
   if (loading) {
     return <Spinner animation="border" size="sm" />;
@@ -294,6 +327,7 @@ const ValorMonetarioVistoria = ({ vistoria }) => {
 };
 
 // 🆕 Componente para calcular e exibir o total de valores das vistorias
+// 🆕 Considera apenas vistorias já executadas (data passada ou atual)
 const TotalValorVistorias = ({ vistorias }) => {
   const [totalValor, setTotalValor] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -304,8 +338,21 @@ const TotalValorVistorias = ({ vistorias }) => {
         setLoading(true);
         let total = 0;
         
-        // Calcular valor para cada vistoria
+        // 🆕 Data atual (sem horas, apenas data)
+        const hoje = new Date()
+        hoje.setHours(0, 0, 0, 0)
+        
+        // Calcular valor apenas para vistorias já executadas
         for (const vistoria of vistorias) {
+          // 🆕 Verificar se a data da vistoria já passou ou é hoje
+          const dataVistoria = new Date(vistoria.data_vistoria + 'T00:00:00')
+          dataVistoria.setHours(0, 0, 0, 0)
+          
+          // Só calcular se a data da vistoria já passou ou é hoje
+          if (dataVistoria > hoje) {
+            continue // Pular vistorias futuras
+          }
+          
           let valorBase = 0;
           
           // Se a vistoria tem valor_monetario salvo, usar esse valor
@@ -405,6 +452,7 @@ const ValorRemuneracaoVistoriador = ({ vistoria }) => {
 };
 
 // 🆕 Componente para calcular o total da remuneração dos vistoriadores
+// 🆕 Considera apenas vistorias já executadas (data passada ou atual)
 const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
   const [totalRemuneracao, setTotalRemuneracao] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -414,7 +462,21 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
       try {
         let total = 0;
         
+        // 🆕 Data atual (sem horas, apenas data)
+        const hoje = new Date()
+        hoje.setHours(0, 0, 0, 0)
+        
+        // Calcular remuneração apenas para vistorias já executadas
         vistorias.forEach(vistoria => {
+          // 🆕 Verificar se a data da vistoria já passou ou é hoje
+          const dataVistoria = new Date(vistoria.data_vistoria + 'T00:00:00')
+          dataVistoria.setHours(0, 0, 0, 0)
+          
+          // Só calcular se a data da vistoria já passou ou é hoje
+          if (dataVistoria > hoje) {
+            return // Pular vistorias futuras
+          }
+          
           const valorUnitario = vistoria.valor_unitario_vistoriador || 0;
           const consumo = parseFloat(vistoria.consumo_calculado) || 0;
           const remuneracao = valorUnitario * consumo;
@@ -453,6 +515,126 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
 
 
 
+// Componente de Card para Mobile
+const VistoriaCardMobile = ({ 
+  vistoria, 
+  formatDate, 
+  handleEditarVistoria, 
+  handleConfirmarExclusao, 
+  isVistoriadorView = false,
+  showVistoriadorColumn = true
+}) => {
+  return (
+    <Card className="mb-3 shadow-sm" style={{ borderLeft: '4px solid #0d6efd' }}>
+      <Card.Body className="p-3">
+        {/* Cabeçalho do Card */}
+        <div className="d-flex justify-content-between align-items-start mb-2">
+          <div className="flex-grow-1">
+            <div className="d-flex align-items-center gap-2 mb-1">
+              <strong className="text-primary fs-6">{vistoria.codigo}</strong>
+              {vistoria.is_express && (
+                <Badge bg="warning" className="d-flex align-items-center">
+                  <FontAwesomeIcon icon={faBolt} size="xs" />
+                </Badge>
+              )}
+            </div>
+            <div className="text-muted small">
+              <FontAwesomeIcon icon={faCalendarAlt} className="me-1" />
+              {formatDate(vistoria.data_vistoria)}
+            </div>
+          </div>
+          <div className="text-end">
+            {isVistoriadorView ? (
+              <ValorRemuneracaoVistoriador vistoria={vistoria} />
+            ) : (
+              <ValorMonetarioVistoria vistoria={vistoria} />
+            )}
+          </div>
+        </div>
+
+        {/* Informações Principais */}
+        <div className="mb-2">
+          <div className="d-flex align-items-center mb-1">
+            <FontAwesomeIcon icon={faBuilding} className="text-muted me-2" size="sm" />
+            <span className="small">{vistoria.imobiliarias?.nome || 'N/A'}</span>
+          </div>
+          {showVistoriadorColumn && vistoria.vistoriadores?.nome && (
+            <div className="d-flex align-items-center mb-1">
+              <FontAwesomeIcon icon={faUserTie} className="text-muted me-2" size="sm" />
+              <span className="small">
+                {vistoria.vistoriadores.nome.split(' ')[0] + ' ' + (vistoria.vistoriadores.nome.split(' ')[1] || '')}
+              </span>
+            </div>
+          )}
+          <div className="d-flex align-items-start mb-1">
+            <FontAwesomeIcon icon={faMapMarkerAlt} className="text-muted me-2 mt-1" size="sm" style={{ flexShrink: 0 }} />
+            <span className="small" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }} title={vistoria.endereco}>
+              {vistoria.endereco}
+            </span>
+          </div>
+        </div>
+
+        {/* Detalhes em Grid */}
+        <div className="row g-2 mb-2" style={{ marginLeft: 0, marginRight: 0 }}>
+          <div className="col-6" style={{ paddingLeft: '4px', paddingRight: '4px' }}>
+            <div className="d-flex align-items-center" style={{ flexWrap: 'wrap' }}>
+              <FontAwesomeIcon icon={faHome} className="text-muted me-1" size="xs" style={{ flexShrink: 0 }} />
+              <span className="small text-muted" style={{ whiteSpace: 'nowrap' }}>Tipo:</span>
+              <span className="small ms-1 fw-semibold" style={{ wordBreak: 'break-word' }}>{vistoria.tipos_imoveis?.nome || 'N/A'}</span>
+            </div>
+          </div>
+          <div className="col-6" style={{ paddingLeft: '4px', paddingRight: '4px' }}>
+            <div className="d-flex align-items-center" style={{ flexWrap: 'wrap' }}>
+              <FontAwesomeIcon icon={faRuler} className="text-muted me-1" size="xs" style={{ flexShrink: 0 }} />
+              <span className="small text-muted" style={{ whiteSpace: 'nowrap' }}>Área:</span>
+              <span className="small ms-1 fw-semibold">{vistoria.area_imovel}m²</span>
+            </div>
+          </div>
+          <div className="col-6" style={{ paddingLeft: '4px', paddingRight: '4px' }}>
+            <div className="d-flex align-items-center" style={{ flexWrap: 'wrap' }}>
+              <FontAwesomeIcon icon={faBox} className="text-muted me-1" size="xs" style={{ flexShrink: 0 }} />
+              <span className="small text-muted" style={{ whiteSpace: 'nowrap' }}>Mobília:</span>
+              <span className="small ms-1 fw-semibold" style={{ wordBreak: 'break-word' }}>{vistoria.tipos_mobilia?.nome || 'N/A'}</span>
+            </div>
+          </div>
+          <div className="col-6" style={{ paddingLeft: '4px', paddingRight: '4px' }}>
+            <div className="d-flex align-items-center" style={{ flexWrap: 'wrap' }}>
+              <span className="small text-muted" style={{ whiteSpace: 'nowrap' }}>Consumo:</span>
+              <span className="small ms-1 fw-bold text-primary">
+                {parseFloat(vistoria.consumo_calculado).toFixed(1)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Botões de Ação */}
+        <div className="d-flex gap-2 mt-2 pt-2 border-top">
+          <Button 
+            variant="outline-warning" 
+            size="sm" 
+            className="flex-fill"
+            onClick={() => handleEditarVistoria(vistoria, isVistoriadorView)}
+          >
+            <FontAwesomeIcon icon={faEdit} className="me-1" />
+            Editar
+          </Button>
+          {!isVistoriadorView && (
+            <Button 
+              variant="outline-danger" 
+              size="sm"
+              className="flex-fill"
+              onClick={() => handleConfirmarExclusao(vistoria)}
+            >
+              <FontAwesomeIcon icon={faTrash} className="me-1" />
+              Excluir
+            </Button>
+          )}
+        </div>
+      </Card.Body>
+    </Card>
+  );
+};
+
 // 🆕 Componente para tabela de vistorias (reutilizável para admin e vistoriador)
 const TabelaVistorias = ({ 
   vistoriasFiltradas, 
@@ -462,8 +644,12 @@ const TabelaVistorias = ({
   isVistoriadorView = false,
   usuarioLogado 
 }) => {
+  // Detectar se está em mobile
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  
   // 🔍 Lógica correta: ocultar coluna apenas se o usuário logado é vistoriador
   const showVistoriadorColumn = usuarioLogado?.tipo !== 'vistoriador';
+  
   if (vistoriasFiltradas.length === 0) {
     return (
       <div className="text-center py-5">
@@ -479,6 +665,26 @@ const TabelaVistorias = ({
     );
   }
 
+  // Renderizar cards no mobile
+  if (isMobile) {
+    return (
+      <div className="vistorias-mobile-list">
+        {vistoriasFiltradas.map((vistoria) => (
+          <VistoriaCardMobile
+            key={vistoria.id}
+            vistoria={vistoria}
+            formatDate={formatDate}
+            handleEditarVistoria={handleEditarVistoria}
+            handleConfirmarExclusao={handleConfirmarExclusao}
+            isVistoriadorView={isVistoriadorView}
+            showVistoriadorColumn={showVistoriadorColumn}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // Renderizar tabela no desktop
   return (
     <div className="table-responsive">
       <Table hover className="table-sm mb-0">
@@ -554,16 +760,16 @@ const TabelaVistorias = ({
                 )}
               </td>
               <td className="text-nowrap">
-                                 <Button 
-                   variant="outline-warning" 
-                   size="sm" 
-                   className="me-1 btn-sm"
-                   title="Editar vistoria"
-                   style={{ padding: '0.2rem 0.4rem' }}
-                   onClick={() => handleEditarVistoria(vistoria, isVistoriadorView)}
-                 >
-                   <FontAwesomeIcon icon={faEdit} size="sm" />
-                 </Button>
+                <Button 
+                  variant="outline-warning" 
+                  size="sm" 
+                  className="me-1 btn-sm"
+                  title="Editar vistoria"
+                  style={{ padding: '0.2rem 0.4rem' }}
+                  onClick={() => handleEditarVistoria(vistoria, isVistoriadorView)}
+                >
+                  <FontAwesomeIcon icon={faEdit} size="sm" />
+                </Button>
                 {!isVistoriadorView && (
                   <Button 
                     variant="outline-danger" 
@@ -586,6 +792,9 @@ const TabelaVistorias = ({
 };
 
 const Dashboard = ({ deslogar, usuarioLogado }) => {
+  // Detectar se está em mobile
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  
   // Estados para dados das vistorias
   const [vistorias, setVistorias] = useState([]);
   const [imobiliarias, setImobiliarias] = useState([]);
@@ -606,6 +815,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [vistoriadorFiltro, setVistoriadorFiltro] = useState('');
+  // Estado para controlar visibilidade dos filtros
+  const [filtrosVisiveis, setFiltrosVisiveis] = useState(false);
 
   // Estados para o modal de nova vistoria
   const [showNovaVistoriaModal, setShowNovaVistoriaModal] = useState(false);
@@ -862,7 +1073,8 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     if (!vistoriaData.tipoVistoriaId) errors.tipoVistoriaId = 'Tipo de vistoria é obrigatório';
     if (!vistoriaData.endereco.trim()) errors.endereco = 'Endereço é obrigatório';
     if (!vistoriaData.dataVistoria) errors.dataVistoria = 'Data da vistoria é obrigatória';
-    if (!vistoriaData.area || parseFloat(vistoriaData.area) <= 0) errors.area = 'Área deve ser maior que zero';
+    // 🆕 Permitir área zero (para permitir consumo zero)
+    if (!vistoriaData.area || parseFloat(vistoriaData.area) < 0) errors.area = 'Área deve ser maior ou igual a zero';
     if (!vistoriaData.tipoMobiliaId) errors.tipoMobiliaId = 'Tipo de mobília é obrigatório';
 
     setVistoriaErrors(errors);
@@ -941,11 +1153,15 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
           setVistorias([result.data, ...vistorias]);
           const creditosDebitados = parseFloat(calculateConsumo().toFixed(2));
           
-          // 🆕 Verificar se os créditos eram insuficientes e mostrar mensagem apropriada
-          if (result.creditosInsuficientes) {
+          // 🆕 Mensagem apropriada baseada na situação
+          if (result.dataFutura) {
+            setSuccessMessage(`✅ Vistoria cadastrada com sucesso! Como a data é futura (${formatDate(dadosVistoria.data_vistoria)}), os créditos serão debitados quando a data chegar.`);
+          } else if (result.consumoZero || creditosDebitados === 0) {
+            setSuccessMessage(`✅ Vistoria cadastrada com sucesso! Nenhum crédito debitado (consumo zero).`);
+          } else if (result.creditosInsuficientes) {
             setSuccessMessage(`⚠️ Vistoria cadastrada com créditos insuficientes! ${creditosDebitados} créditos foram debitados da imobiliária. Saldo atual: ${result.novoSaldo.toFixed(2)} créditos.`);
           } else {
-            setSuccessMessage(`Vistoria cadastrada com sucesso! ${creditosDebitados} créditos foram debitados da imobiliária.`);
+            setSuccessMessage(`✅ Vistoria cadastrada com sucesso! ${creditosDebitados} créditos foram debitados da imobiliária.`);
           }
         }
       }
@@ -1497,7 +1713,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
 
   return (
     <DashboardLayout deslogar={deslogar} usuarioLogado={usuarioLogado}>
-      <Container fluid className="px-2">
+      <Container fluid className="dashboard-container-main" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <Row>
           <Col>
             <Card className="shadow-sm">
@@ -1528,13 +1744,13 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                     {/* Aba do Administrador - Apenas para admins */}
                     {usuarioLogado?.tipo === 'admin' && (
                       <Tab.Pane eventKey="administrador">
-                      <div className="d-flex justify-content-between align-items-center mb-3">
-                        <div>
+                      <div className={`d-flex ${isMobile ? 'flex-column' : 'justify-content-between'} align-items-${isMobile ? 'stretch' : 'center'} mb-3 gap-2`}>
+                        <div className={isMobile ? 'text-center mb-2' : ''}>
                           <small className="text-muted">
                             Visualização de TODAS as vistorias - Criar, editar e excluir
                           </small>
                         </div>
-                        <div className="d-flex gap-2">
+                        <div className={`d-flex gap-2 ${isMobile ? 'flex-column w-100' : ''}`}>
                           {/* 📄 Botão para gerar relatório */}
                           <Button 
                             variant="outline-info" 
@@ -1542,11 +1758,15 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             onClick={() => handleGerarRelatorio(false)}
                             title="Gerar relatório em PDF"
                             disabled={loading || gerandoRelatorio || vistoriasFiltradas.length === 0}
+                            className={isMobile ? 'w-100' : ''}
                           >
                             {gerandoRelatorio ? (
                               <Spinner animation="border" size="sm" />
                             ) : (
-                              <FontAwesomeIcon icon={faFilePdf} />
+                              <>
+                                <FontAwesomeIcon icon={faFilePdf} className={isMobile ? 'me-2' : ''} />
+                                {isMobile && 'Relatório PDF'}
+                              </>
                             )}
                           </Button>
 
@@ -1557,15 +1777,17 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             onClick={handleRecarregarLista}
                             title="Recarregar lista de vistorias"
                             disabled={loading}
+                            className={isMobile ? 'w-100' : ''}
                           >
-                            <FontAwesomeIcon icon={faSync} spin={loading} />
+                            <FontAwesomeIcon icon={faSync} spin={loading} className={isMobile ? 'me-2' : ''} />
+                            {isMobile && 'Recarregar'}
                           </Button>
                           
                           <Button 
                             variant="success" 
                             onClick={handleShowNovaVistoriaModal}
                             disabled={loading || loadingModal}
-                            className="text-nowrap"
+                            className={isMobile ? 'w-100' : 'text-nowrap'}
                           >
                             {loadingModal ? (
                               <>
@@ -1585,18 +1807,48 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                       {/* Total de Valores */}
                       <Row className="mb-3">
                         <Col md={12}>
-                          <div className="d-flex justify-content-end align-items-center">
-                            <span className="text-muted me-2">Total de Valores:</span>
-                            <span className="fs-5 text-primary fw-bold">
-                              <TotalValorVistorias vistorias={vistoriasFiltradas} />
-                            </span>
+                          <div className={`d-flex ${isMobile ? 'justify-content-center flex-column align-items-center' : 'justify-content-between align-items-center'} total-value-mobile`}>
+                            <div className={`d-flex ${isMobile ? 'w-100 justify-content-center mb-2' : ''} align-items-center`}>
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={() => setFiltrosVisiveis(!filtrosVisiveis)}
+                                className={isMobile ? 'w-100' : ''}
+                              >
+                                <FontAwesomeIcon icon={faFilter} className="me-2" />
+                                Filtros
+                                <FontAwesomeIcon 
+                                  icon={filtrosVisiveis ? faChevronUp : faChevronDown} 
+                                  className="ms-2" 
+                                  size="sm"
+                                />
+                              </Button>
+                              {/* Indicador de filtros ativos */}
+                              {(filtroTexto || dataInicio || dataFim || vistoriadorFiltro) && (
+                                <Badge bg="primary" className="ms-2">
+                                  {[
+                                    filtroTexto ? 1 : 0,
+                                    dataInicio ? 1 : 0,
+                                    dataFim ? 1 : 0,
+                                    vistoriadorFiltro ? 1 : 0
+                                  ].reduce((a, b) => a + b, 0)}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className={`d-flex ${isMobile ? 'w-100 justify-content-center' : ''} align-items-center`}>
+                              <span className="text-muted me-2">Total de Valores:</span>
+                              <span className="fs-5 text-primary fw-bold">
+                                <TotalValorVistorias vistorias={vistoriasFiltradas} />
+                              </span>
+                            </div>
                           </div>
                         </Col>
                       </Row>
 
                       {/* Filtros - Aba Administrador */}
-                      <Row className="mb-3">
-                        <Col md={6} lg={3}>
+                      {filtrosVisiveis && (
+                      <Row className="mb-3 dashboard-filters-mobile" style={{ animation: 'slideDown 0.3s ease-out' }}>
+                        <Col xs={12} md={6} lg={3}>
                           <InputGroup size="sm">
                             <InputGroup.Text>
                               <FontAwesomeIcon icon={faSearch} />
@@ -1609,7 +1861,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             />
                           </InputGroup>
                         </Col>
-                        <Col md={3} lg={2}>
+                        <Col xs={6} md={3} lg={2}>
                           <Form.Control
                             type="date"
                             size="sm"
@@ -1619,7 +1871,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             title="Data de início"
                           />
                         </Col>
-                        <Col md={3} lg={2}>
+                        <Col xs={6} md={3} lg={2}>
                           <Form.Control
                             type="date"
                             size="sm"
@@ -1629,7 +1881,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             title="Data final"
                           />
                         </Col>
-                        <Col md={6} lg={3}>
+                        <Col xs={12} md={6} lg={3}>
                           <Form.Select
                             size="sm"
                             value={vistoriadorFiltro}
@@ -1643,7 +1895,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             ))}
                           </Form.Select>
                         </Col>
-                        <Col md={6} lg={2}>
+                        <Col xs={12} md={6} lg={2}>
                           <Button
                             variant="outline-secondary"
                             size="sm"
@@ -1659,6 +1911,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                           </Button>
                         </Col>
                       </Row>
+                      )}
 
                       <TabelaVistorias 
                         vistoriasFiltradas={vistoriasFiltradas} 
@@ -1673,13 +1926,13 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
 
                     {/* Aba do Vistoriador */}
                     <Tab.Pane eventKey="vistoriador">
-                      <div className="d-flex justify-content-between align-items-center mb-3">
-                        <div>
+                      <div className={`d-flex ${isMobile ? 'flex-column' : 'justify-content-between'} align-items-${isMobile ? 'stretch' : 'center'} mb-3 gap-2`}>
+                        <div className={isMobile ? 'text-center mb-2' : ''}>
                           <small className="text-muted">
                             Visualização apenas das SUAS vistorias - Edição permitida
                           </small>
                         </div>
-                        <div className="d-flex gap-2">
+                        <div className={`d-flex gap-2 ${isMobile ? 'flex-column w-100' : ''}`}>
                           {/* 📄 Botão para gerar relatório de remuneração */}
                           <Button 
                             variant="outline-success" 
@@ -1687,13 +1940,14 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             onClick={() => handleGerarRelatorio(true)}
                             title="Gerar relatório de remuneração em PDF"
                             disabled={loading || gerandoRelatorio || vistoriasFiltradas.length === 0}
+                            className={isMobile ? 'w-100' : ''}
                           >
                             {gerandoRelatorio ? (
                               <Spinner animation="border" size="sm" />
                             ) : (
                               <>
                                 <FontAwesomeIcon icon={faFilePdf} className="me-1" />
-                                Relatório
+                                {isMobile ? 'Relatório PDF' : 'Relatório'}
                               </>
                             )}
                           </Button>
@@ -1703,18 +1957,47 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                       {/* Total de Remuneração */}
                       <Row className="mb-3">
                         <Col md={12}>
-                          <div className="d-flex justify-content-end align-items-center">
-                            <span className="text-muted me-2">Total de Remuneração:</span>
-                            <span className="fs-5 text-success fw-bold">
-                              <TotalRemuneracaoVistoriadores vistorias={vistoriasFiltradas} />
-                            </span>
+                          <div className={`d-flex ${isMobile ? 'justify-content-center flex-column align-items-center' : 'justify-content-between align-items-center'} total-value-mobile`}>
+                            <div className={`d-flex ${isMobile ? 'w-100 justify-content-center mb-2' : ''} align-items-center`}>
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={() => setFiltrosVisiveis(!filtrosVisiveis)}
+                                className={isMobile ? 'w-100' : ''}
+                              >
+                                <FontAwesomeIcon icon={faFilter} className="me-2" />
+                                Filtros
+                                <FontAwesomeIcon 
+                                  icon={filtrosVisiveis ? faChevronUp : faChevronDown} 
+                                  className="ms-2" 
+                                  size="sm"
+                                />
+                              </Button>
+                              {/* Indicador de filtros ativos */}
+                              {(filtroTexto || dataInicio || dataFim) && (
+                                <Badge bg="primary" className="ms-2">
+                                  {[
+                                    filtroTexto ? 1 : 0,
+                                    dataInicio ? 1 : 0,
+                                    dataFim ? 1 : 0
+                                  ].reduce((a, b) => a + b, 0)}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className={`d-flex ${isMobile ? 'w-100 justify-content-center' : ''} align-items-center`}>
+                              <span className="text-muted me-2">Total de Remuneração:</span>
+                              <span className="fs-5 text-success fw-bold">
+                                <TotalRemuneracaoVistoriadores vistorias={vistoriasFiltradas} />
+                              </span>
+                            </div>
                           </div>
                         </Col>
                       </Row>
 
                       {/* Filtros - Aba Vistoriador */}
-                      <Row className="mb-3">
-                        <Col md={6} lg={4}>
+                      {filtrosVisiveis && (
+                      <Row className="mb-3 dashboard-filters-mobile" style={{ animation: 'slideDown 0.3s ease-out' }}>
+                        <Col xs={12} md={6} lg={4}>
                           <InputGroup size="sm">
                             <InputGroup.Text>
                               <FontAwesomeIcon icon={faSearch} />
@@ -1727,7 +2010,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             />
                           </InputGroup>
                         </Col>
-                        <Col md={3} lg={2}>
+                        <Col xs={6} md={3} lg={2}>
                           <Form.Control
                             type="date"
                             size="sm"
@@ -1737,7 +2020,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             title="Data de início"
                           />
                         </Col>
-                        <Col md={3} lg={2}>
+                        <Col xs={6} md={3} lg={2}>
                           <Form.Control
                             type="date"
                             size="sm"
@@ -1747,7 +2030,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                             title="Data final"
                           />
                         </Col>
-                        <Col md={6} lg={2}>
+                        <Col xs={12} md={6} lg={2}>
                           <Button
                             variant="outline-secondary"
                             size="sm"
@@ -1762,6 +2045,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
                           </Button>
                         </Col>
                       </Row>
+                      )}
 
                       <TabelaVistorias 
                         vistoriasFiltradas={vistoriasFiltradas} 
