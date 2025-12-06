@@ -5,6 +5,7 @@ import { faPlus, faSearch, faTrash, faEdit, faBolt, faUserTie, faUsers, faCamera
 
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import html2canvas from 'html2canvas';
 import DashboardLayout from '../components/DashboardLayout';
 import { vistoriasService, imobiliariasService, vistoriadoresService, tiposService, tiposConsumoService, creditosService, migrationService, imagensVistoriaService } from '../lib/supabase';
 
@@ -1395,7 +1396,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
   };
 
-  // 📄 Função para gerar relatório em PDF
+  // 📄 Função para gerar relatório em IMAGEM (formato A4)
   const handleGerarRelatorio = async (isVistoriadorView = false) => {
     if (vistoriasFiltradas.length === 0) {
       alert('Não há vistorias para gerar o relatório!');
@@ -1405,11 +1406,6 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     try {
       setGerandoRelatorio(true);
 
-      // Criar um novo documento PDF
-      const doc = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      
       // Configurações de formatação
       const formatDate = (dateString) => {
         const date = new Date(dateString + 'T00:00:00');
@@ -1437,158 +1433,293 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         }, 0);
       };
 
-      // Cabeçalho do relatório
-      doc.setFontSize(20);
-      doc.setTextColor(13, 110, 253); // Cor azul do sistema
-      doc.text('Controle de Vistorias', pageWidth / 2, 20, { align: 'center' });
-      
-      doc.setFontSize(16);
-      doc.setTextColor(51, 51, 51);
-      const tituloRelatorio = isVistoriadorView 
-        ? 'Relatório de Remuneração - Vistoriador' 
-        : 'Relatório de Vistorias - Administração';
-      doc.text(tituloRelatorio, pageWidth / 2, 30, { align: 'center' });
+      // Dimensões A4 em pixels (considerando 96 DPI)
+      // A4: 210mm x 297mm = 794px x 1123px (a 96 DPI)
+      const A4_WIDTH_PX = 794;
+      const A4_HEIGHT_PX = 1123;
+      const MARGIN_PX = 40;
+      const CONTENT_WIDTH = A4_WIDTH_PX - (MARGIN_PX * 2);
+      const CONTENT_HEIGHT = A4_HEIGHT_PX - (MARGIN_PX * 2);
 
-      // Informações do relatório em layout horizontal
-      const agora = new Date();
-      const dataHoraRelatorio = agora.toLocaleString('pt-BR');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(102, 102, 102);
-      
-      // Lado esquerdo - Informações do usuário
-      doc.text(`Usuário: ${usuarioLogado?.nome || 'N/A'}`, 20, 45);
-      doc.text(`Data/Hora: ${dataHoraRelatorio}`, 20, 50);
-      doc.text(`Total de registros: ${vistoriasFiltradas.length}`, 20, 55);
-
-      // Lado direito - Filtros aplicados (se houver)
-      let yPosition = 60;
-      if (filtroTexto || dataInicio || dataFim || vistoriadorFiltro) {
-        doc.setFontSize(11);
-        doc.setTextColor(73, 80, 87);
-        doc.text('Filtros Aplicados:', pageWidth - 90, 45);
-        
-        let rightYPos = 50;
-        doc.setFontSize(10);
-        doc.setTextColor(102, 102, 102);
-        
-        if (filtroTexto) {
-          doc.text(`Busca: ${filtroTexto}`, pageWidth - 90, rightYPos);
-          rightYPos += 4;
-        }
-        if (dataInicio) {
-          doc.text(`Data Início: ${formatDate(dataInicio)}`, pageWidth - 90, rightYPos);
-          rightYPos += 4;
-        }
-        if (dataFim) {
-          doc.text(`Data Fim: ${formatDate(dataFim)}`, pageWidth - 90, rightYPos);
-          rightYPos += 4;
-        }
-        if (vistoriadorFiltro) {
-          doc.text(`Vistoriador: ${vistoriadorFiltro}`, pageWidth - 90, rightYPos);
-          rightYPos += 4;
-        }
-        yPosition = Math.max(60, rightYPos + 5);
-      }
+      // Criar elemento temporário para o relatório
+      const relatorioContainer = document.createElement('div');
+      relatorioContainer.id = 'relatorio-temporario';
+      relatorioContainer.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        width: ${A4_WIDTH_PX}px;
+        background: white;
+        font-family: Arial, sans-serif;
+        color: #333;
+      `;
 
       // Preparar dados da tabela
       const tableColumns = isVistoriadorView 
         ? ['Código', 'Imobiliária', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Remuneração']
-        : ['Código', 'Imobiliária', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Valor'];
+        : ['Código', 'Imobiliária', 'Vistoriador', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Valor'];
 
-      const tableData = vistoriasFiltradas.map(vistoria => {
-        const endereco = vistoria.endereco && vistoria.endereco.length > 35 
-          ? vistoria.endereco.substring(0, 35) + '...' 
-          : vistoria.endereco || 'N/A';
-        
-        const baseData = [
-          vistoria.codigo,
-          vistoria.imobiliarias?.nome || 'N/A',
-          formatDate(vistoria.data_vistoria),
-          vistoria.tipos_imoveis?.nome || 'N/A',
-          `${vistoria.area_imovel}m²`,
-          vistoria.tipos_mobilia?.nome || 'N/A',
-          vistoria.consumo_calculado || '0',
-          endereco
-        ];
-
-        if (isVistoriadorView) {
-          const remuneracao = 0.5 * parseFloat(vistoria.consumo_calculado);
-          return [...baseData, formatCurrency(remuneracao)];
-        } else {
-          return [...baseData, formatCurrency(vistoria.valor_monetario)];
-        }
-      });
-
-      // Gerar tabela com paginação automática
-      doc.autoTable({
-        head: [tableColumns],
-        body: tableData,
-        startY: yPosition,
-        styles: {
-          fontSize: 8,
-          cellPadding: 2,
-        },
-        headStyles: {
-          fillColor: [13, 110, 253],
-          textColor: 255,
-          fontStyle: 'bold'
-        },
-        columnStyles: {
-          0: { halign: 'center', cellWidth: 12 }, // Código
-          1: { cellWidth: 22 }, // Imobiliária
-          2: { halign: 'center', cellWidth: 18 }, // Data
-          3: { cellWidth: 18 }, // Tipo
-          4: { halign: 'center', cellWidth: 12 }, // Área
-          5: { cellWidth: 18 }, // Status
-          6: { halign: 'center', cellWidth: 12 }, // Consumo
-          7: { cellWidth: 45, fontSize: 7 }, // Endereço
-          8: { halign: 'right', cellWidth: 20 } // Remuneração/Valor
-        },
-        margin: { top: 10, bottom: 30 },
-        didDrawPage: function (data) {
-          // Rodapé em cada página
-          doc.setFontSize(8);
-          doc.setTextColor(102, 102, 102);
-          doc.text(
-            'Relatório gerado automaticamente pelo Sistema de Controle de Vistorias',
-            pageWidth / 2,
-            pageHeight - 15,
-            { align: 'center' }
-          );
-          doc.text(
-            `© ${new Date().getFullYear()} - Todos os direitos reservados`,
-            pageWidth / 2,
-            pageHeight - 10,
-            { align: 'center' }
-          );
-        }
-      });
-
-      // Adicionar total no final
-      const finalY = doc.lastAutoTable.finalY + 10;
-      doc.setFontSize(14);
-      doc.setTextColor(13, 110, 253);
-      const totalLabel = isVistoriadorView ? 'Total de Remuneração: ' : 'Total Geral: ';
-      const totalValue = formatCurrency(calcularTotalGeral());
+      // Calcular altura necessária por linha (aproximadamente 25px por linha)
+      const alturaLinha = 25;
+      const alturaCabecalho = 120; // Cabeçalho + informações
+      const alturaRodape = 50;
+      const alturaDisponivelPorPagina = CONTENT_HEIGHT - alturaCabecalho - alturaRodape;
+      const linhasPorPagina = Math.floor(alturaDisponivelPorPagina / alturaLinha);
       
-      doc.text(totalLabel + totalValue, pageWidth - 20, finalY, { align: 'right' });
-
-      // Salvar o PDF
-      const agora2 = new Date();
-      const timestamp = agora2.toISOString().slice(0, 19).replace(/:/g, '-');
+      // Dividir vistorias em páginas
+      const totalPaginas = Math.ceil(vistoriasFiltradas.length / linhasPorPagina);
+      const agora = new Date();
+      const dataHoraRelatorio = agora.toLocaleString('pt-BR');
+      const timestamp = agora.toISOString().slice(0, 19).replace(/:/g, '-');
       const tipoRelatorio = isVistoriadorView ? 'remuneracao' : 'vistorias';
-      const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}.pdf`;
-      
-      doc.save(nomeArquivo);
 
-      setSuccessMessage(`Relatório PDF gerado e baixado com sucesso: ${nomeArquivo}`);
+      // Gerar cada página
+      for (let pagina = 0; pagina < totalPaginas; pagina++) {
+        const inicio = pagina * linhasPorPagina;
+        const fim = Math.min(inicio + linhasPorPagina, vistoriasFiltradas.length);
+        const vistoriasPagina = vistoriasFiltradas.slice(inicio, fim);
+
+        const paginaDiv = document.createElement('div');
+        paginaDiv.style.cssText = `
+          width: ${A4_WIDTH_PX}px;
+          min-height: ${A4_HEIGHT_PX}px;
+          padding: ${MARGIN_PX}px;
+          box-sizing: border-box;
+          page-break-after: always;
+          background: white;
+        `;
+
+        // Cabeçalho
+        const cabecalho = document.createElement('div');
+        cabecalho.style.cssText = `
+          text-align: center;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #0d6efd;
+          padding-bottom: 15px;
+        `;
+        cabecalho.innerHTML = `
+          <h1 style="color: #0d6efd; font-size: 24px; margin: 0 0 10px 0;">Controle de Vistorias</h1>
+          <h2 style="color: #333; font-size: 18px; margin: 0 0 20px 0;">
+            ${isVistoriadorView ? 'Relatório de Remuneração - Vistoriador' : 'Relatório de Vistorias - Administração'}
+          </h2>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666;">
+            <div style="text-align: left;">
+              <div><strong>Usuário:</strong> ${usuarioLogado?.nome || 'N/A'}</div>
+              <div><strong>Data/Hora:</strong> ${dataHoraRelatorio}</div>
+              <div><strong>Total de registros:</strong> ${vistoriasFiltradas.length}</div>
+              ${totalPaginas > 1 ? `<div><strong>Página:</strong> ${pagina + 1} de ${totalPaginas}</div>` : ''}
+            </div>
+            <div style="text-align: right;">
+              ${(filtroTexto || dataInicio || dataFim || vistoriadorFiltro) ? `
+                <div style="font-weight: bold; margin-bottom: 5px;">Filtros Aplicados:</div>
+                ${filtroTexto ? `<div>Busca: ${filtroTexto}</div>` : ''}
+                ${dataInicio ? `<div>Data Início: ${formatDate(dataInicio)}</div>` : ''}
+                ${dataFim ? `<div>Data Fim: ${formatDate(dataFim)}</div>` : ''}
+                ${vistoriadorFiltro ? `<div>Vistoriador: ${vistoriadorFiltro}</div>` : ''}
+              ` : ''}
+            </div>
+          </div>
+        `;
+        paginaDiv.appendChild(cabecalho);
+
+        // Tabela
+        const tabela = document.createElement('table');
+        tabela.style.cssText = `
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 10px;
+          margin-bottom: 20px;
+        `;
+
+        // Cabeçalho da tabela
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headerRow.style.cssText = 'background-color: #0d6efd; color: white;';
+        tableColumns.forEach(col => {
+          const th = document.createElement('th');
+          th.textContent = col;
+          th.style.cssText = `
+            padding: 8px 4px;
+            text-align: left;
+            border: 1px solid #ddd;
+            font-weight: bold;
+          `;
+          if (col === 'Código' || col === 'Área' || col === 'Consumo') {
+            th.style.textAlign = 'center';
+          }
+          if (col === 'Remuneração' || col === 'Valor') {
+            th.style.textAlign = 'right';
+          }
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        tabela.appendChild(thead);
+
+        // Corpo da tabela
+        const tbody = document.createElement('tbody');
+        vistoriasPagina.forEach((vistoria, index) => {
+          const tr = document.createElement('tr');
+          tr.style.cssText = index % 2 === 0 ? 'background-color: #f8f9fa;' : 'background-color: white;';
+          
+          const endereco = vistoria.endereco && vistoria.endereco.length > 40 
+            ? vistoria.endereco.substring(0, 40) + '...' 
+            : vistoria.endereco || 'N/A';
+
+          const cells = [
+            vistoria.codigo,
+            vistoria.imobiliarias?.nome || 'N/A',
+            ...(isVistoriadorView ? [] : [vistoria.vistoriadores?.nome?.split(' ')[0] + ' ' + (vistoria.vistoriadores?.nome?.split(' ')[1] || '') || 'N/A']),
+            formatDate(vistoria.data_vistoria),
+            vistoria.tipos_imoveis?.nome || 'N/A',
+            `${vistoria.area_imovel}m²`,
+            vistoria.tipos_mobilia?.nome || 'N/A',
+            parseFloat(vistoria.consumo_calculado).toFixed(1),
+            endereco,
+            isVistoriadorView 
+              ? formatCurrency(0.5 * parseFloat(vistoria.consumo_calculado))
+              : formatCurrency(vistoria.valor_monetario)
+          ];
+
+          cells.forEach((cell, cellIndex) => {
+            const td = document.createElement('td');
+            td.textContent = cell;
+            td.style.cssText = `
+              padding: 6px 4px;
+              border: 1px solid #ddd;
+              font-size: 9px;
+            `;
+            
+            // Alinhamento baseado na coluna real
+            const colunaAtual = tableColumns[cellIndex];
+            if (colunaAtual === 'Código' || colunaAtual === 'Área' || colunaAtual === 'Consumo') {
+              td.style.textAlign = 'center';
+            } else if (colunaAtual === 'Remuneração' || colunaAtual === 'Valor') {
+              td.style.textAlign = 'right';
+            }
+            
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        tabela.appendChild(tbody);
+        paginaDiv.appendChild(tabela);
+
+        // Rodapé e total (apenas na última página)
+        if (pagina === totalPaginas - 1) {
+          const rodape = document.createElement('div');
+          rodape.style.cssText = `
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 2px solid #0d6efd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          `;
+          rodape.innerHTML = `
+            <div style="font-size: 9px; color: #666;">
+              Relatório gerado automaticamente pelo Sistema de Controle de Vistorias<br>
+              © ${new Date().getFullYear()} - Todos os direitos reservados
+            </div>
+            <div style="font-size: 14px; color: #0d6efd; font-weight: bold; text-align: right;">
+              ${isVistoriadorView ? 'Total de Remuneração: ' : 'Total Geral: '}
+              ${formatCurrency(calcularTotalGeral())}
+            </div>
+          `;
+          paginaDiv.appendChild(rodape);
+        } else {
+          const rodape = document.createElement('div');
+          rodape.style.cssText = `
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 9px;
+            color: #666;
+            text-align: center;
+          `;
+          rodape.innerHTML = `
+            Relatório gerado automaticamente pelo Sistema de Controle de Vistorias<br>
+            © ${new Date().getFullYear()} - Todos os direitos reservados
+          `;
+          paginaDiv.appendChild(rodape);
+        }
+
+        relatorioContainer.appendChild(paginaDiv);
+      }
+
+      document.body.appendChild(relatorioContainer);
+
+      // Aguardar renderização
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Capturar cada página como imagem
+      const imagens = [];
+      for (let i = 0; i < totalPaginas; i++) {
+        const paginaDiv = relatorioContainer.children[i];
+        
+        const canvas = await html2canvas(paginaDiv, {
+          backgroundColor: '#ffffff',
+          scale: 2, // Alta resolução
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          width: A4_WIDTH_PX,
+          height: A4_HEIGHT_PX,
+          windowWidth: A4_WIDTH_PX,
+          windowHeight: A4_HEIGHT_PX
+        });
+
+        imagens.push(canvas);
+      }
+
+      // Remover elemento temporário
+      document.body.removeChild(relatorioContainer);
+
+      // Baixar imagens
+      if (totalPaginas === 1) {
+        // Uma única página - baixar diretamente
+        const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}.png`;
+        imagens[0].toBlob((blob) => {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = nomeArquivo;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 'image/png', 0.95);
+        
+        setSuccessMessage(`Relatório em imagem gerado e baixado com sucesso: ${nomeArquivo}`);
+      } else {
+        // Múltiplas páginas - baixar todas
+        for (let i = 0; i < imagens.length; i++) {
+          const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}-pagina${i + 1}.png`;
+          imagens[i].toBlob((blob) => {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = nomeArquivo;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          }, 'image/png', 0.95);
+        }
+        
+        setSuccessMessage(`Relatório em imagem gerado com ${totalPaginas} páginas e baixado com sucesso!`);
+      }
+      
       setTimeout(() => setSuccessMessage(''), 5000);
 
     } catch (error) {
-      console.error('Erro ao gerar relatório PDF:', error);
-      setErrorMessage('Erro ao gerar relatório PDF. Tente novamente.');
+      console.error('Erro ao gerar relatório em imagem:', error);
+      setErrorMessage('Erro ao gerar relatório em imagem. Tente novamente.');
       setTimeout(() => setErrorMessage(''), 5000);
+      
+      // Limpar elemento temporário em caso de erro
+      const elemento = document.getElementById('relatorio-temporario');
+      if (elemento) {
+        document.body.removeChild(elemento);
+      }
     } finally {
       setGerandoRelatorio(false);
     }
