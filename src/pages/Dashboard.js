@@ -411,10 +411,25 @@ const ValorRemuneracaoVistoriador = ({ vistoria }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const calcularRemuneracao = () => {
+    const calcularRemuneracao = async () => {
       try {
-        // Usar o valor unitário salvo na vistoria (histórico congelado)
-        const valorUnitario = vistoria.valor_unitario_vistoriador || 0;
+        setLoading(true);
+        
+        let valorUnitario = 0;
+        
+        // Se a vistoria já tem valor_unitario_vistoriador salvo, usar esse valor (histórico congelado)
+        if (vistoria.valor_unitario_vistoriador && vistoria.valor_unitario_vistoriador > 0) {
+          valorUnitario = parseFloat(vistoria.valor_unitario_vistoriador);
+        } else {
+          // Para vistorias antigas sem valor_unitario_vistoriador, buscar o valor atual do vistoriador
+          if (vistoria.vistoriador_id) {
+            const result = await vistoriadoresService.obterValorUnitarioCredito(vistoria.vistoriador_id);
+            if (result.success) {
+              valorUnitario = result.data;
+            }
+          }
+        }
+        
         const consumo = parseFloat(vistoria.consumo_calculado) || 0;
         const remuneracao = valorUnitario * consumo;
         
@@ -459,8 +474,9 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const calcularTotal = () => {
+    const calcularTotal = async () => {
       try {
+        setLoading(true);
         let total = 0;
         
         // 🆕 Data atual (sem horas, apenas data)
@@ -468,21 +484,35 @@ const TotalRemuneracaoVistoriadores = ({ vistorias }) => {
         hoje.setHours(0, 0, 0, 0)
         
         // Calcular remuneração apenas para vistorias já executadas
-        vistorias.forEach(vistoria => {
+        for (const vistoria of vistorias) {
           // 🆕 Verificar se a data da vistoria já passou ou é hoje
           const dataVistoria = new Date(vistoria.data_vistoria + 'T00:00:00')
           dataVistoria.setHours(0, 0, 0, 0)
           
           // Só calcular se a data da vistoria já passou ou é hoje
           if (dataVistoria > hoje) {
-            return // Pular vistorias futuras
+            continue // Pular vistorias futuras
           }
           
-          const valorUnitario = vistoria.valor_unitario_vistoriador || 0;
+          let valorUnitario = 0;
+          
+          // Se a vistoria já tem valor_unitario_vistoriador salvo, usar esse valor
+          if (vistoria.valor_unitario_vistoriador && vistoria.valor_unitario_vistoriador > 0) {
+            valorUnitario = parseFloat(vistoria.valor_unitario_vistoriador);
+          } else {
+            // Para vistorias antigas sem valor_unitario_vistoriador, buscar o valor atual do vistoriador
+            if (vistoria.vistoriador_id) {
+              const result = await vistoriadoresService.obterValorUnitarioCredito(vistoria.vistoriador_id);
+              if (result.success) {
+                valorUnitario = result.data;
+              }
+            }
+          }
+          
           const consumo = parseFloat(vistoria.consumo_calculado) || 0;
           const remuneracao = valorUnitario * consumo;
           total += remuneracao;
-        });
+        }
         
         setTotalRemuneracao(total);
       } catch (error) {

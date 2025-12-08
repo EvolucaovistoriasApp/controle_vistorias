@@ -206,6 +206,27 @@ export const vistoriadoresService = {
       console.error('Erro ao atualizar vistoriador:', error)
       return { success: false, error: 'Erro interno do servidor' }
     }
+  },
+
+  // 🆕 Obter valor unitário do crédito de um vistoriador específico
+  async obterValorUnitarioCredito(vistoriadorId) {
+    try {
+      const { data, error } = await supabase
+        .from('vistoriadores')
+        .select('valor_unitario_credito')
+        .eq('id', vistoriadorId)
+        .single()
+      
+      if (error) {
+        console.error('Erro ao buscar valor unitário do vistoriador:', error)
+        return { success: false, error: 'Erro ao buscar valor unitário do vistoriador' }
+      }
+      
+      return { success: true, data: parseFloat(data?.valor_unitario_credito || 0) }
+    } catch (error) {
+      console.error('Erro ao buscar valor unitário do vistoriador:', error)
+      return { success: false, error: 'Erro interno do servidor' }
+    }
   }
 }
 
