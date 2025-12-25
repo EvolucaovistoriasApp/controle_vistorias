@@ -5,7 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faBars, faTimes, faHome, 
   faBuilding, faHouseUser, faUserTie, 
-  faBoxes, faSignOutAlt, faUser, faCalculator, faChartLine
+  faBoxes, faSignOutAlt, faUser, faCalculator, faChartLine, faSync
 } from '@fortawesome/free-solid-svg-icons';
 
 const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
@@ -88,6 +88,7 @@ const DashboardLayout = ({ children, deslogar, usuarioLogado }) => {
     { path: '/consumo', icon: faBoxes, label: 'Consumo', roles: ['admin'] },
     { path: '/orcamento', icon: faCalculator, label: 'Orçamento', roles: ['admin'] },
     { path: '/balanco', icon: faChartLine, label: 'Balanço', roles: ['admin'] },
+    { path: '/processamento-balanco', icon: faSync, label: 'Processar Balanço', roles: ['admin'] },
     { path: '/perfil', icon: faUser, label: 'Meu Perfil', roles: ['admin', 'vistoriador', 'imobiliaria'] }
   ];
 

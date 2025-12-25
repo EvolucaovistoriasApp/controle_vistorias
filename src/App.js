@@ -14,6 +14,7 @@ import Vistoriadores from './pages/Vistoriadores';
 import Consumo from './pages/Consumo';
 import Orcamento from './pages/Orcamento';
 import Balanco from './pages/Balanco';
+import ProcessamentoBalanco from './pages/ProcessamentoBalanco';
 import Perfil from './pages/Perfil';
 
 function App() {
@@ -131,6 +132,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <Balanco deslogar={deslogar} usuarioLogado={usuarioLogado} />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/processamento-balanco" 
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <ProcessamentoBalanco deslogar={deslogar} usuarioLogado={usuarioLogado} />
               </ProtectedRoute>
             } 
           />

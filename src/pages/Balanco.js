@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Container, Row, Col, Card, Table, Button, Form, Modal, InputGroup, Alert, Badge, Spinner } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChartLine, faEdit, faPlus, faSave, faTimes, faPercent, faCalculator } from '@fortawesome/free-solid-svg-icons';
+import { faChartLine, faEdit, faPlus, faSave, faTimes, faPercent, faCalculator, faSync } from '@fortawesome/free-solid-svg-icons';
 import DashboardLayout from '../components/DashboardLayout';
 import { supabase, creditosService } from '../lib/supabase';
 
 const Balanco = ({ deslogar, usuarioLogado }) => {
+  const navigate = useNavigate();
+  
   // Estados principais
   const [loading, setLoading] = useState(true);
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
@@ -14,6 +17,7 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
   const [dadosEvolucao, setDadosEvolucao] = useState([]);
   const [dadosEngenheiro, setDadosEngenheiro] = useState([]);
   const [resumoDizimos, setResumoDizimos] = useState([]);
+  const [cacheVazio, setCacheVazio] = useState(false);
   
   // Estados dos modais
   const [showModalPercentual, setShowModalPercentual] = useState(false);
@@ -188,53 +192,21 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
     }
   };
 
-  // Carregar dados da evolução (primeira tabela) - usando EXATAMENTE a mesma lógica da tela imobiliárias
+  // Carregar dados da evolução (primeira tabela) - OTIMIZADO: usando cache
   const carregarDadosEvolucao = async () => {
     try {
-      console.log('🔄 Carregando dados de evolução para ano:', anoSelecionado);
+      console.log('🔄 Carregando dados de evolução do cache para ano:', anoSelecionado);
       
-      // Obter todas as imobiliárias (igual na tela de imobiliárias)
-      const { data: imobiliariasData, error: imobiliariasError } = await supabase
-        .from('imobiliarias')
-        .select('id');
-      
-      if (imobiliariasError) throw imobiliariasError;
+      // Buscar dados do cache (muito mais rápido que calcular em tempo real)
+      const { data: cacheData, error: cacheError } = await supabase
+        .from('balanco_evolucao_cache')
+        .select('mes_numero, valor_liquido, data_atualizacao')
+        .eq('ano', anoSelecionado)
+        .order('mes_numero');
 
-      console.log(`✅ Encontradas ${imobiliariasData?.length || 0} imobiliárias`);
-
-      // Processar dados por mês (usando a MESMA lógica da tela de imobiliárias)
-      const dadosPorMes = {};
-      meses.forEach((mes, index) => {
-        dadosPorMes[index + 1] = 0;
-      });
-
-      // Para cada mês, calcular o valor líquido total
-      for (let mesIndex = 0; mesIndex < 12; mesIndex++) {
-        const mesNumero = mesIndex + 1;
-        const mesString = mesNumero.toString().padStart(2, '0');
-        
-        console.log(`🔍 Processando mês ${mesNumero} (${meses[mesIndex]})`);
-        
-        // Para cada imobiliária, obter dados de consumo do mês
-        for (const imobiliaria of imobiliariasData || []) {
-          try {
-            // Usar a MESMA função que a tela de imobiliárias usa
-            const consumoData = await obterDadosConsumoImobiliaria(imobiliaria.id, mesString, anoSelecionado.toString());
-            dadosPorMes[mesNumero] += consumoData.valorLiquido || 0;
-            
-            if (consumoData.valorLiquido > 0) {
-              console.log(`  💰 Imobiliária ${imobiliaria.id}: R$ ${consumoData.valorLiquido.toFixed(2)}`);
-            }
-          } catch (error) {
-            console.error(`Erro ao processar imobiliária ${imobiliaria.id} no mês ${mesNumero}:`, error);
-            // Continuar processamento mesmo com erro
-          }
-        }
-        
-        console.log(`✅ Total do mês ${mesNumero}: R$ ${dadosPorMes[mesNumero].toFixed(2)}`);
+      if (cacheError && cacheError.code !== 'PGRST116') {
+        console.warn('⚠️ Erro ao buscar cache:', cacheError);
       }
-
-      console.log('💰 Valores líquidos por mês (final):', dadosPorMes);
 
       // Buscar percentuais personalizados salvos para este ano
       const { data: percentuaisPersonalizados } = await supabase
@@ -243,10 +215,13 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
         .eq('ano', anoSelecionado)
         .eq('tipo', 'evolucao_dizimo');
 
-      // Criar estrutura final
+      // Criar estrutura final a partir do cache
       const evolucaoMensal = meses.map((mes, index) => {
         const mesNumero = index + 1;
-        const valorLiquido = dadosPorMes[mesNumero] || 0;
+        
+        // Buscar valor do cache para este mês
+        const cacheMes = cacheData?.find(c => c.mes_numero === mesNumero);
+        const valorLiquido = cacheMes?.valor_liquido || 0;
         
         // Verificar se há percentual personalizado para este mês
         const percentualPersonalizado = percentuaisPersonalizados?.find(p => p.mes_numero === mesNumero);
@@ -254,13 +229,22 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
         
         return {
           mes,
-          liquido: valorLiquido,
+          liquido: parseFloat(valorLiquido) || 0,
           percentualDizimo: percentualDizimo,
-          dizimo: valorLiquido * (percentualDizimo / 100)
+          dizimo: (parseFloat(valorLiquido) || 0) * (percentualDizimo / 100)
         };
       });
 
-      console.log('✅ Dados de evolução carregados com sucesso');
+      console.log('✅ Dados de evolução carregados do cache com sucesso');
+      
+      // Verificar se há dados no cache
+      if (!cacheData || cacheData.length === 0) {
+        console.warn('⚠️ Nenhum dado encontrado no cache. Execute o processamento de balanço primeiro.');
+        setCacheVazio(true);
+      } else {
+        setCacheVazio(false);
+      }
+      
       setDadosEvolucao(evolucaoMensal);
     } catch (error) {
       console.error('❌ Erro ao carregar dados de evolução:', error);
@@ -555,7 +539,7 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
                       onChange={(e) => setAnoSelecionado(parseInt(e.target.value))}
                       style={{ width: '100px' }}
                     >
-                      {[2024, 2025, 2026, 2027, 2028].map(ano => (
+                      {Array.from({ length: 2030 - 2019 + 1 }, (_, i) => 2019 + i).map(ano => (
                         <option key={ano} value={ano}>{ano}</option>
                       ))}
                     </Form.Select>
@@ -565,6 +549,29 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
             </Card>
           </Col>
         </Row>
+
+        {/* Alerta se cache estiver vazio */}
+        {cacheVazio && (
+          <Row className="mb-4">
+            <Col>
+              <Alert variant="warning" className="d-flex align-items-center justify-content-between">
+                <div>
+                  <FontAwesomeIcon icon={faCalculator} className="me-2" />
+                  <strong>Atenção:</strong> Nenhum dado encontrado no cache para o ano {anoSelecionado}. 
+                  Execute o processamento de balanço primeiro.
+                </div>
+                <Button 
+                  variant="primary" 
+                  size="sm"
+                  onClick={() => navigate('/processamento-balanco')}
+                >
+                  <FontAwesomeIcon icon={faSync} className="me-2" />
+                  Processar Balanço
+                </Button>
+              </Alert>
+            </Col>
+          </Row>
+        )}
 
         {/* Primeira Tabela - Evolução Vistorias */}
         <Row className="mb-4">
