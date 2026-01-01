@@ -6,8 +6,150 @@ import { faChartLine, faEdit, faPlus, faSave, faTimes, faPercent, faCalculator, 
 import DashboardLayout from '../components/DashboardLayout';
 import { supabase, creditosService } from '../lib/supabase';
 
+// Hook para detectar se está em mobile
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handler = (event) => setMatches(event.matches);
+    
+    mediaQuery.addEventListener('change', handler);
+    setMatches(mediaQuery.matches);
+    
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+};
+
+// Componente Card Mobile para Evolução Vistorias
+const EvolucaoCardMobile = ({ item, onEditarPercentual }) => {
+  return (
+    <Card className="mb-2 shadow-sm" style={{ borderLeft: '4px solid #0d6efd' }}>
+      <Card.Body className="p-3">
+        <div className="d-flex justify-content-between align-items-start mb-2">
+          <div className="flex-grow-1">
+            <h6 className="mb-1 text-capitalize fw-bold">{item.mes}</h6>
+            <div className="text-muted small">Líquido</div>
+          </div>
+          <div className="text-end">
+            <div className="fw-bold text-primary">R$ {item.liquido.toFixed(2)}</div>
+          </div>
+        </div>
+        <div className="d-flex justify-content-between align-items-center border-top pt-2">
+          <div>
+            <small className="text-muted d-block">Dízimo</small>
+            <Badge bg="info" className="mt-1">{item.percentualDizimo}%</Badge>
+            <span className="ms-2 fw-bold">R$ {item.dizimo.toFixed(2)}</span>
+          </div>
+          <Button
+            variant="outline-primary"
+            size="sm"
+            onClick={() => onEditarPercentual('evolucao', item.mes, item.liquido, item.percentualDizimo)}
+          >
+            <FontAwesomeIcon icon={faEdit} />
+          </Button>
+        </div>
+      </Card.Body>
+    </Card>
+  );
+};
+
+// Componente Card Mobile para Engenheiro
+const EngenheiroCardMobile = ({ item, onEditarEngenheiro, onEditarPercentual }) => {
+  return (
+    <Card className="mb-2 shadow-sm" style={{ borderLeft: '4px solid #ffc107' }}>
+      <Card.Body className="p-3">
+        <div className="d-flex justify-content-between align-items-start mb-2">
+          <h6 className="mb-0 text-capitalize fw-bold">{item.mes}</h6>
+        </div>
+        
+        <div className="mb-2">
+          <div className="d-flex justify-content-between mb-1">
+            <small className="text-muted">Contrato</small>
+            <span className="fw-bold">R$ {item.contrato.toFixed(2)}</span>
+          </div>
+          <div className="d-flex justify-content-between mb-1">
+            <small className="text-muted">Desconto</small>
+            <div>
+              <Badge bg="warning" className="me-1">{item.percentualDesconto}%</Badge>
+              <span className="fw-bold">R$ {item.desconto.toFixed(2)}</span>
+            </div>
+          </div>
+          <div className="d-flex justify-content-between mb-1">
+            <small className="text-muted">Extra</small>
+            <span className="fw-bold">R$ {item.extra.toFixed(2)}</span>
+          </div>
+          <div className="d-flex justify-content-between mb-1 border-top pt-1">
+            <small className="text-muted fw-bold">Salário</small>
+            <span className="fw-bold text-success">R$ {item.salario.toFixed(2)}</span>
+          </div>
+          <div className="d-flex justify-content-between mb-2 border-top pt-1">
+            <small className="text-muted">Dízimo</small>
+            <div>
+              <Badge bg="info" className="me-1">{item.percentualDizimo}%</Badge>
+              <span className="fw-bold">R$ {item.dizimo.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div className="d-flex gap-2 border-top pt-2">
+          <Button
+            variant="outline-primary"
+            size="sm"
+            className="flex-fill"
+            onClick={() => onEditarEngenheiro(item.mes)}
+          >
+            <FontAwesomeIcon icon={faEdit} className="me-1" />
+            Editar Valores
+          </Button>
+          <Button
+            variant="outline-warning"
+            size="sm"
+            onClick={() => onEditarPercentual('engenheiro_desconto', item.mes, item.contrato, item.percentualDesconto)}
+          >
+            <FontAwesomeIcon icon={faPercent} />
+          </Button>
+        </div>
+      </Card.Body>
+    </Card>
+  );
+};
+
+// Componente Card Mobile para Resumo Dízimos
+const ResumoCardMobile = ({ item }) => {
+  return (
+    <Card className="mb-2 shadow-sm" style={{ borderLeft: '4px solid #198754' }}>
+      <Card.Body className="p-3">
+        <div className="d-flex justify-content-between align-items-start mb-2">
+          <h6 className="mb-0 text-capitalize fw-bold">{item.mes}</h6>
+        </div>
+        
+        <div className="mb-2">
+          <div className="d-flex justify-content-between mb-1">
+            <small className="text-muted">Dízimo Evolução</small>
+            <span className="fw-bold">R$ {item.dizimoEvolucao.toFixed(2)}</span>
+          </div>
+          <div className="d-flex justify-content-between mb-1">
+            <small className="text-muted">Dízimo Engenheiro</small>
+            <span className="fw-bold">R$ {item.dizimoEngenheiro.toFixed(2)}</span>
+          </div>
+          <div className="d-flex justify-content-between border-top pt-1 mt-2">
+            <small className="text-muted fw-bold">Total</small>
+            <span className="fw-bold text-success fs-6">R$ {item.total.toFixed(2)}</span>
+          </div>
+        </div>
+      </Card.Body>
+    </Card>
+  );
+};
+
 const Balanco = ({ deslogar, usuarioLogado }) => {
   const navigate = useNavigate();
+  
+  // Detectar se está em mobile
+  const isMobile = useMediaQuery('(max-width: 768px)');
   
   // Estados principais
   const [loading, setLoading] = useState(true);
@@ -44,8 +186,7 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
     try {
       await Promise.all([
         carregarDadosEvolucao(),
-        carregarDadosEngenheiro(),
-        carregarPercentuais()
+        carregarDadosEngenheiro()
       ]);
       calcularResumoDizimos();
     } catch (error) {
@@ -264,7 +405,7 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
   // Carregar dados do engenheiro (segunda tabela)
   const carregarDadosEngenheiro = async () => {
     try {
-      // Buscar ou criar dados do engenheiro para o ano
+      // Buscar dados do engenheiro para o ano
       const { data, error } = await supabase
         .from('balanco_engenheiro')
         .select('*')
@@ -273,25 +414,67 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
 
       if (error && error.code !== 'PGRST116') throw error;
 
-      // Se não existir dados, criar estrutura inicial
-      if (!data || data.length === 0) {
-        const dadosIniciais = meses.map((mes, index) => ({
+      // Buscar percentuais personalizados do engenheiro
+      const { data: percentuaisPersonalizados } = await supabase
+        .from('balanco_percentuais')
+        .select('mes_numero, tipo, percentual')
+        .eq('ano', anoSelecionado)
+        .in('tipo', ['engenheiro_desconto', 'engenheiro_dizimo']);
+
+      // Criar estrutura inicial se não existir dados
+      const dadosCarregados = meses.map((mes, index) => {
+        const mesNumero = index + 1;
+        const dadosMes = data?.find(d => d.mes_numero === mesNumero);
+        
+        // Buscar percentuais personalizados para este mês
+        const percentualDescontoPersonalizado = percentuaisPersonalizados?.find(
+          p => p.mes_numero === mesNumero && p.tipo === 'engenheiro_desconto'
+        );
+        const percentualDizimoPersonalizado = percentuaisPersonalizados?.find(
+          p => p.mes_numero === mesNumero && p.tipo === 'engenheiro_dizimo'
+        );
+        
+        // Usar dados do banco ou valores padrão
+        const contrato = dadosMes?.contrato || 0;
+        const extra = dadosMes?.extra || 0;
+        const percentualDesconto = percentualDescontoPersonalizado?.percentual || dadosMes?.percentual_desconto || dadosMes?.percentualDesconto || 55;
+        const percentualDizimo = percentualDizimoPersonalizado?.percentual || dadosMes?.percentual_dizimo || dadosMes?.percentualDizimo || 10;
+        
+        // Calcular valores derivados
+        const desconto = contrato * (percentualDesconto / 100);
+        const salario = contrato - desconto + extra;
+        const dizimo = salario * (percentualDizimo / 100);
+        
+        return {
           mes,
-          mes_numero: index + 1,
-          contrato: 0,
-          percentualDesconto: 55, // Padrão 55%
-          desconto: 0,
-          extra: 0,
-          salario: 0,
-          percentualDizimo: 10, // Padrão 10%
-          dizimo: 0
-        }));
-        setDadosEngenheiro(dadosIniciais);
-      } else {
-        setDadosEngenheiro(data);
-      }
+          mes_numero: mesNumero,
+          contrato: parseFloat(contrato) || 0,
+          percentualDesconto: parseFloat(percentualDesconto),
+          desconto: parseFloat(desconto) || 0,
+          extra: parseFloat(extra) || 0,
+          salario: parseFloat(salario) || 0,
+          percentualDizimo: parseFloat(percentualDizimo),
+          dizimo: parseFloat(dizimo) || 0
+        };
+      });
+
+      setDadosEngenheiro(dadosCarregados);
     } catch (error) {
       console.error('Erro ao carregar dados do engenheiro:', error);
+      
+      // Em caso de erro, criar estrutura vazia
+      const dadosVazios = meses.map((mes, index) => ({
+        mes,
+        mes_numero: index + 1,
+        contrato: 0,
+        percentualDesconto: 55,
+        desconto: 0,
+        extra: 0,
+        salario: 0,
+        percentualDizimo: 10,
+        dizimo: 0
+      }));
+      setDadosEngenheiro(dadosVazios);
     }
   };
 
@@ -403,30 +586,51 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
 
         if (saveError) throw saveError;
 
-        // Atualizar dados do engenheiro
+        // Buscar dados atuais do mês
+        const dadosMes = dadosEngenheiro.find(d => d.mes === modalData.mes);
+        const contrato = dadosMes?.contrato || 0;
+        const extra = dadosMes?.extra || 0;
+        const percentualDizimo = dadosMes?.percentualDizimo || 10;
+        
+        // Recalcular valores
+        const desconto = contrato * (novoPercentual / 100);
+        const salario = contrato - desconto + extra;
+        const dizimo = salario * (percentualDizimo / 100);
+        
+        // Atualizar dados do engenheiro no banco
+        const { error: updateError } = await supabase
+          .from('balanco_engenheiro')
+          .upsert({
+            ano: anoSelecionado,
+            mes: modalData.mes,
+            mes_numero: mesNumero,
+            contrato: contrato,
+            percentual_desconto: novoPercentual,
+            desconto: desconto,
+            extra: extra,
+            salario: salario,
+            percentual_dizimo: percentualDizimo,
+            dizimo: dizimo
+          }, {
+            onConflict: 'ano,mes_numero'
+          });
+
+        if (updateError) throw updateError;
+
+        // Atualizar estado local
         const novosDados = dadosEngenheiro.map(item => 
           item.mes === modalData.mes 
             ? { 
                 ...item, 
                 percentualDesconto: novoPercentual, 
-                desconto: item.contrato * (novoPercentual / 100),
-                salario: item.contrato - (item.contrato * (novoPercentual / 100)) + item.extra
+                desconto: desconto,
+                salario: salario,
+                dizimo: dizimo
               }
             : item
         );
         
-        // Recalcular dízimo baseado no novo salário
-        const dadosComDizimo = novosDados.map(item => {
-          if (item.mes === modalData.mes) {
-            return {
-              ...item,
-              dizimo: item.salario * (item.percentualDizimo / 100)
-            };
-          }
-          return item;
-        });
-        
-        setDadosEngenheiro(dadosComDizimo);
+        setDadosEngenheiro(novosDados);
         
       } else if (modalData.tipo === 'engenheiro_dizimo') {
         // Salvar percentual de dízimo do engenheiro
@@ -446,9 +650,40 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
 
         if (saveError) throw saveError;
 
+        // Buscar dados atuais do mês
+        const dadosMes = dadosEngenheiro.find(d => d.mes === modalData.mes);
+        const contrato = dadosMes?.contrato || 0;
+        const extra = dadosMes?.extra || 0;
+        const percentualDesconto = dadosMes?.percentualDesconto || 55;
+        const salario = dadosMes?.salario || 0;
+        
+        // Recalcular dízimo
+        const dizimo = salario * (novoPercentual / 100);
+        
+        // Atualizar dados do engenheiro no banco
+        const { error: updateError } = await supabase
+          .from('balanco_engenheiro')
+          .upsert({
+            ano: anoSelecionado,
+            mes: modalData.mes,
+            mes_numero: mesNumero,
+            contrato: contrato,
+            percentual_desconto: percentualDesconto,
+            desconto: dadosMes?.desconto || 0,
+            extra: extra,
+            salario: salario,
+            percentual_dizimo: novoPercentual,
+            dizimo: dizimo
+          }, {
+            onConflict: 'ano,mes_numero'
+          });
+
+        if (updateError) throw updateError;
+
+        // Atualizar estado local
         const novosDados = dadosEngenheiro.map(item => 
           item.mes === modalData.mes 
-            ? { ...item, percentualDizimo: novoPercentual, dizimo: item.salario * (novoPercentual / 100) }
+            ? { ...item, percentualDizimo: novoPercentual, dizimo: dizimo }
             : item
         );
         setDadosEngenheiro(novosDados);
@@ -475,30 +710,66 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
   };
 
   // Salvar dados do engenheiro
-  const salvarEngenheiro = () => {
-    const contrato = parseFloat(engenheiroData.contrato) || 0;
-    const extra = parseFloat(engenheiroData.extra) || 0;
-    
-    const novosDados = dadosEngenheiro.map(item => {
-      if (item.mes === engenheiroData.mes) {
-        const desconto = contrato * (item.percentualDesconto / 100);
-        const salario = contrato - desconto + extra;
-        const dizimo = salario * (item.percentualDizimo / 100);
-        
-        return {
-          ...item,
-          contrato,
-          desconto,
-          extra,
-          salario,
-          dizimo
-        };
-      }
-      return item;
-    });
-    
-    setDadosEngenheiro(novosDados);
-    setShowModalEngenheiro(false);
+  const salvarEngenheiro = async () => {
+    setSalvando(true);
+    try {
+      const contrato = parseFloat(engenheiroData.contrato) || 0;
+      const extra = parseFloat(engenheiroData.extra) || 0;
+      const mesNumero = meses.indexOf(engenheiroData.mes) + 1;
+      
+      // Buscar dados atuais do mês para obter os percentuais
+      const dadosMes = dadosEngenheiro.find(d => d.mes === engenheiroData.mes);
+      const percentualDesconto = dadosMes?.percentualDesconto || 55;
+      const percentualDizimo = dadosMes?.percentualDizimo || 10;
+      
+      // Calcular valores derivados
+      const desconto = contrato * (percentualDesconto / 100);
+      const salario = contrato - desconto + extra;
+      const dizimo = salario * (percentualDizimo / 100);
+      
+      // Salvar no banco de dados
+      const { error: saveError } = await supabase
+        .from('balanco_engenheiro')
+        .upsert({
+          ano: anoSelecionado,
+          mes: engenheiroData.mes,
+          mes_numero: mesNumero,
+          contrato: contrato,
+          percentual_desconto: percentualDesconto,
+          desconto: desconto,
+          extra: extra,
+          salario: salario,
+          percentual_dizimo: percentualDizimo,
+          dizimo: dizimo
+        }, {
+          onConflict: 'ano,mes_numero'
+        });
+
+      if (saveError) throw saveError;
+
+      // Atualizar estado local
+      const novosDados = dadosEngenheiro.map(item => {
+        if (item.mes === engenheiroData.mes) {
+          return {
+            ...item,
+            contrato,
+            desconto,
+            extra,
+            salario,
+            dizimo
+          };
+        }
+        return item;
+      });
+      
+      setDadosEngenheiro(novosDados);
+      setShowModalEngenheiro(false);
+    } catch (error) {
+      console.error('Erro ao salvar dados do engenheiro:', error);
+      alert('Erro ao salvar dados. Tente novamente.');
+    } finally {
+      setSalvando(false);
+    }
   };
 
   if (loading) {
@@ -518,26 +789,26 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
 
   return (
     <DashboardLayout deslogar={deslogar} usuarioLogado={usuarioLogado}>
-      <Container fluid>
+      <Container fluid className={isMobile ? "px-2" : ""}>
         {/* Header */}
-        <Row className="mb-4">
+        <Row className="mb-3">
           <Col>
             <Card className="shadow-sm">
               <Card.Header className="bg-success text-white">
-                <div className="d-flex justify-content-between align-items-center">
+                <div className={isMobile ? "d-flex flex-column gap-2" : "d-flex justify-content-between align-items-center"}>
                   <div>
-                    <h4 className="mb-0">
+                    <h4 className="mb-0" style={{ fontSize: isMobile ? '1.2rem' : '1.5rem' }}>
                       <FontAwesomeIcon icon={faChartLine} className="me-2" />
                       Balanço Financeiro
                     </h4>
                     <small>Controle de receitas, despesas e dízimos</small>
                   </div>
-                  <div className="d-flex align-items-center">
+                  <div className={isMobile ? "d-flex align-items-center gap-2" : "d-flex align-items-center"}>
                     <Form.Label className="text-white mb-0 me-2">Ano:</Form.Label>
                     <Form.Select
                       value={anoSelecionado}
                       onChange={(e) => setAnoSelecionado(parseInt(e.target.value))}
-                      style={{ width: '100px' }}
+                      style={{ width: isMobile ? '100%' : '100px' }}
                     >
                       {Array.from({ length: 2030 - 2019 + 1 }, (_, i) => 2019 + i).map(ano => (
                         <option key={ano} value={ano}>{ano}</option>
@@ -552,10 +823,10 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
 
         {/* Alerta se cache estiver vazio */}
         {cacheVazio && (
-          <Row className="mb-4">
+          <Row className="mb-3">
             <Col>
-              <Alert variant="warning" className="d-flex align-items-center justify-content-between">
-                <div>
+              <Alert variant="warning" className={isMobile ? "d-flex flex-column gap-2" : "d-flex align-items-center justify-content-between"}>
+                <div className={isMobile ? "small" : ""}>
                   <FontAwesomeIcon icon={faCalculator} className="me-2" />
                   <strong>Atenção:</strong> Nenhum dado encontrado no cache para o ano {anoSelecionado}. 
                   Execute o processamento de balanço primeiro.
@@ -563,6 +834,7 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
                 <Button 
                   variant="primary" 
                   size="sm"
+                  className={isMobile ? "w-100" : ""}
                   onClick={() => navigate('/processamento-balanco')}
                 >
                   <FontAwesomeIcon icon={faSync} className="me-2" />
@@ -574,161 +846,216 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
         )}
 
         {/* Primeira Tabela - Evolução Vistorias */}
-        <Row className="mb-4">
+        <Row className="mb-3">
           <Col>
             <Card className="shadow-sm">
               <Card.Header className="bg-primary text-white">
-                <h5 className="mb-0">Evolução Vistorias</h5>
+                <h5 className="mb-0" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>Evolução Vistorias</h5>
                 <small>Valores líquidos das imobiliárias</small>
               </Card.Header>
-              <Card.Body>
-                <div className="table-responsive">
-                  <Table striped bordered hover size="sm">
-                    <thead className="table-dark">
-                      <tr>
-                        <th>Mês</th>
-                        <th>Líquido (R$)</th>
-                        <th>Dízimo %</th>
-                        <th>Dízimo (R$)</th>
-                        <th>Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dadosEvolucao.map((item, index) => (
-                        <tr key={index}>
-                          <td className="text-capitalize">{item.mes}</td>
-                          <td>R$ {item.liquido.toFixed(2)}</td>
-                          <td>
-                            <Badge bg="info">{item.percentualDizimo}%</Badge>
-                          </td>
-                          <td>R$ {item.dizimo.toFixed(2)}</td>
-                          <td>
-                            <Button
-                              variant="outline-primary"
-                              size="sm"
-                              onClick={() => editarPercentual('evolucao', item.mes, item.liquido, item.percentualDizimo)}
-                            >
-                              <FontAwesomeIcon icon={faEdit} />
-                            </Button>
-                          </td>
+              <Card.Body className={isMobile ? "p-2" : ""}>
+                {isMobile ? (
+                  <div>
+                    {dadosEvolucao.map((item, index) => (
+                      <EvolucaoCardMobile
+                        key={index}
+                        item={item}
+                        onEditarPercentual={editarPercentual}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="table-responsive">
+                    <Table striped bordered hover size="sm">
+                      <thead className="table-dark">
+                        <tr>
+                          <th>Mês</th>
+                          <th>Líquido (R$)</th>
+                          <th>Dízimo %</th>
+                          <th>Dízimo (R$)</th>
+                          <th>Ações</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {dadosEvolucao.map((item, index) => (
+                          <tr key={index}>
+                            <td className="text-capitalize">{item.mes}</td>
+                            <td>R$ {item.liquido.toFixed(2)}</td>
+                            <td>
+                              <Badge bg="info">{item.percentualDizimo}%</Badge>
+                            </td>
+                            <td>R$ {item.dizimo.toFixed(2)}</td>
+                            <td>
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={() => editarPercentual('evolucao', item.mes, item.liquido, item.percentualDizimo)}
+                              >
+                                <FontAwesomeIcon icon={faEdit} />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </div>
+                )}
               </Card.Body>
             </Card>
           </Col>
         </Row>
 
         {/* Segunda Tabela - Engenheiro */}
-        <Row className="mb-4">
+        <Row className="mb-3">
           <Col>
             <Card className="shadow-sm">
               <Card.Header className="bg-warning text-dark">
-                <h5 className="mb-0">Engenheiro</h5>
+                <h5 className="mb-0" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>Engenheiro</h5>
                 <small>Contratos e remuneração</small>
               </Card.Header>
-              <Card.Body>
-                <div className="table-responsive">
-                  <Table striped bordered hover size="sm">
-                    <thead className="table-dark">
-                      <tr>
-                        <th>Mês</th>
-                        <th>Contrato (R$)</th>
-                        <th>Desconto %</th>
-                        <th>Desconto (R$)</th>
-                        <th>Extra (R$)</th>
-                        <th>Salário (R$)</th>
-                        <th>Dízimo %</th>
-                        <th>Dízimo (R$)</th>
-                        <th>Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dadosEngenheiro.map((item, index) => (
-                        <tr key={index}>
-                          <td className="text-capitalize">{item.mes}</td>
-                          <td>R$ {item.contrato.toFixed(2)}</td>
-                          <td>
-                            <Badge bg="warning">{item.percentualDesconto}%</Badge>
-                          </td>
-                          <td>R$ {item.desconto.toFixed(2)}</td>
-                          <td>R$ {item.extra.toFixed(2)}</td>
-                          <td>R$ {item.salario.toFixed(2)}</td>
-                          <td>
-                            <Badge bg="info">{item.percentualDizimo}%</Badge>
-                          </td>
-                          <td>R$ {item.dizimo.toFixed(2)}</td>
-                          <td>
-                            <div className="d-flex gap-1">
-                              <Button
-                                variant="outline-primary"
-                                size="sm"
-                                onClick={() => editarEngenheiro(item.mes)}
-                                title="Editar valores"
-                              >
-                                <FontAwesomeIcon icon={faEdit} />
-                              </Button>
-                              <Button
-                                variant="outline-warning"
-                                size="sm"
-                                onClick={() => editarPercentual('engenheiro_desconto', item.mes, item.contrato, item.percentualDesconto)}
-                                title="Editar % desconto"
-                              >
-                                <FontAwesomeIcon icon={faPercent} />
-                              </Button>
-                            </div>
-                          </td>
+              <Card.Body className={isMobile ? "p-2" : ""}>
+                {isMobile ? (
+                  <div>
+                    {dadosEngenheiro.map((item, index) => (
+                      <EngenheiroCardMobile
+                        key={index}
+                        item={item}
+                        onEditarEngenheiro={editarEngenheiro}
+                        onEditarPercentual={editarPercentual}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="table-responsive">
+                    <Table striped bordered hover size="sm">
+                      <thead className="table-dark">
+                        <tr>
+                          <th>Mês</th>
+                          <th>Contrato (R$)</th>
+                          <th>Desconto %</th>
+                          <th>Desconto (R$)</th>
+                          <th>Extra (R$)</th>
+                          <th>Salário (R$)</th>
+                          <th>Dízimo %</th>
+                          <th>Dízimo (R$)</th>
+                          <th>Ações</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {dadosEngenheiro.map((item, index) => (
+                          <tr key={index}>
+                            <td className="text-capitalize">{item.mes}</td>
+                            <td>R$ {item.contrato.toFixed(2)}</td>
+                            <td>
+                              <Badge bg="warning">{item.percentualDesconto}%</Badge>
+                            </td>
+                            <td>R$ {item.desconto.toFixed(2)}</td>
+                            <td>R$ {item.extra.toFixed(2)}</td>
+                            <td>R$ {item.salario.toFixed(2)}</td>
+                            <td>
+                              <Badge bg="info">{item.percentualDizimo}%</Badge>
+                            </td>
+                            <td>R$ {item.dizimo.toFixed(2)}</td>
+                            <td>
+                              <div className="d-flex gap-1">
+                                <Button
+                                  variant="outline-primary"
+                                  size="sm"
+                                  onClick={() => editarEngenheiro(item.mes)}
+                                  title="Editar valores"
+                                >
+                                  <FontAwesomeIcon icon={faEdit} />
+                                </Button>
+                                <Button
+                                  variant="outline-warning"
+                                  size="sm"
+                                  onClick={() => editarPercentual('engenheiro_desconto', item.mes, item.contrato, item.percentualDesconto)}
+                                  title="Editar % desconto"
+                                >
+                                  <FontAwesomeIcon icon={faPercent} />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </div>
+                )}
               </Card.Body>
             </Card>
           </Col>
         </Row>
 
         {/* Terceira Tabela - Resumo Dízimos */}
-        <Row className="mb-4">
+        <Row className="mb-3">
           <Col>
             <Card className="shadow-sm">
               <Card.Header className="bg-success text-white">
-                <h5 className="mb-0">Resumo - Dízimos</h5>
+                <h5 className="mb-0" style={{ fontSize: isMobile ? '1rem' : '1.25rem' }}>Resumo - Dízimos</h5>
                 <small>Consolidação dos dízimos das duas tabelas anteriores</small>
               </Card.Header>
-              <Card.Body>
-                <div className="table-responsive">
-                  <Table striped bordered hover size="sm">
-                    <thead className="table-dark">
-                      <tr>
-                        <th>Mês</th>
-                        <th>Dízimo Evolução (R$)</th>
-                        <th>Dízimo Engenheiro (R$)</th>
-                        <th>Total Dízimo (R$)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resumoDizimos.map((item, index) => (
-                        <tr key={index}>
-                          <td className="text-capitalize">{item.mes}</td>
-                          <td>R$ {item.dizimoEvolucao.toFixed(2)}</td>
-                          <td>R$ {item.dizimoEngenheiro.toFixed(2)}</td>
-                          <td className="table-success">
-                            <strong>R$ {item.total.toFixed(2)}</strong>
-                          </td>
+              <Card.Body className={isMobile ? "p-2" : ""}>
+                {isMobile ? (
+                  <div>
+                    {resumoDizimos.map((item, index) => (
+                      <ResumoCardMobile key={index} item={item} />
+                    ))}
+                    {/* Card de Total Anual no Mobile */}
+                    <Card className="mt-2 border-primary" style={{ borderLeft: '4px solid #0d6efd' }}>
+                      <Card.Body className="p-3 bg-light">
+                        <div className="d-flex justify-content-between align-items-center mb-2">
+                          <h6 className="mb-0 fw-bold text-primary">TOTAL ANUAL</h6>
+                        </div>
+                        <div className="mb-1">
+                          <div className="d-flex justify-content-between mb-1">
+                            <small className="text-muted">Dízimo Evolução</small>
+                            <span className="fw-bold">R$ {resumoDizimos.reduce((acc, item) => acc + item.dizimoEvolucao, 0).toFixed(2)}</span>
+                          </div>
+                          <div className="d-flex justify-content-between mb-1">
+                            <small className="text-muted">Dízimo Engenheiro</small>
+                            <span className="fw-bold">R$ {resumoDizimos.reduce((acc, item) => acc + item.dizimoEngenheiro, 0).toFixed(2)}</span>
+                          </div>
+                          <div className="d-flex justify-content-between border-top pt-1 mt-2">
+                            <small className="text-muted fw-bold">Total Geral</small>
+                            <span className="fw-bold text-success fs-5">R$ {resumoDizimos.reduce((acc, item) => acc + item.total, 0).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </div>
+                ) : (
+                  <div className="table-responsive">
+                    <Table striped bordered hover size="sm">
+                      <thead className="table-dark">
+                        <tr>
+                          <th>Mês</th>
+                          <th>Dízimo Evolução (R$)</th>
+                          <th>Dízimo Engenheiro (R$)</th>
+                          <th>Total Dízimo (R$)</th>
                         </tr>
-                      ))}
-                      <tr className="table-primary">
-                        <td><strong>TOTAL ANUAL</strong></td>
-                        <td><strong>R$ {resumoDizimos.reduce((acc, item) => acc + item.dizimoEvolucao, 0).toFixed(2)}</strong></td>
-                        <td><strong>R$ {resumoDizimos.reduce((acc, item) => acc + item.dizimoEngenheiro, 0).toFixed(2)}</strong></td>
-                        <td><strong>R$ {resumoDizimos.reduce((acc, item) => acc + item.total, 0).toFixed(2)}</strong></td>
-                      </tr>
-                    </tbody>
-                  </Table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {resumoDizimos.map((item, index) => (
+                          <tr key={index}>
+                            <td className="text-capitalize">{item.mes}</td>
+                            <td>R$ {item.dizimoEvolucao.toFixed(2)}</td>
+                            <td>R$ {item.dizimoEngenheiro.toFixed(2)}</td>
+                            <td className="table-success">
+                              <strong>R$ {item.total.toFixed(2)}</strong>
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="table-primary">
+                          <td><strong>TOTAL ANUAL</strong></td>
+                          <td><strong>R$ {resumoDizimos.reduce((acc, item) => acc + item.dizimoEvolucao, 0).toFixed(2)}</strong></td>
+                          <td><strong>R$ {resumoDizimos.reduce((acc, item) => acc + item.dizimoEngenheiro, 0).toFixed(2)}</strong></td>
+                          <td><strong>R$ {resumoDizimos.reduce((acc, item) => acc + item.total, 0).toFixed(2)}</strong></td>
+                        </tr>
+                      </tbody>
+                    </Table>
+                  </div>
+                )}
               </Card.Body>
             </Card>
           </Col>
@@ -837,12 +1164,21 @@ const Balanco = ({ deslogar, usuarioLogado }) => {
           </Form>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowModalEngenheiro(false)}>
+          <Button variant="secondary" onClick={() => setShowModalEngenheiro(false)} disabled={salvando}>
             Cancelar
           </Button>
-          <Button variant="primary" onClick={salvarEngenheiro}>
-            <FontAwesomeIcon icon={faSave} className="me-2" />
-            Salvar
+          <Button variant="primary" onClick={salvarEngenheiro} disabled={salvando}>
+            {salvando ? (
+              <>
+                <Spinner animation="border" size="sm" className="me-2" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <FontAwesomeIcon icon={faSave} className="me-2" />
+                Salvar
+              </>
+            )}
           </Button>
         </Modal.Footer>
       </Modal>
