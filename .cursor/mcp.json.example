@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "supabase-acompanhamento-vist": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "SEU_PERSONAL_ACCESS_TOKEN_AQUI",
+        "--project-ref",
+        "ecnczvgvcizyxhleovfq"
+      ]
+    }
+  }
+}

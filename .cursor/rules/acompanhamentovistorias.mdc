@@ -8,8 +8,15 @@
 
 ## Configurações de Banco de Dados
 - **Projeto Supabase ID**: ecnczvgvcizyxhleovfq
-- **Token Supabase**: sbp_69aff80a3ef4cb691e18fa79b68587ce1a341b6d
+- **MCP Supabase**: configurado em `.cursor/mcp.json` (somente neste workspace)
 - **Ambiente**: Produção
+
+### MCP Supabase (Cursor)
+- O servidor MCP está em `.cursor/mcp.json` e é **exclusivo deste projeto**
+- Nome do servidor: `supabase-acompanhamento-vist`
+- Escopo: projeto `ecnczvgvcizyxhleovfq` via `--project-ref`
+- Para ativar: Cursor → Settings → Tools & MCP → habilitar `supabase-acompanhamento-vist`
+- Template sem credenciais: `.cursor/mcp.json.example`
 
 ## Diretrizes Técnicas
 
