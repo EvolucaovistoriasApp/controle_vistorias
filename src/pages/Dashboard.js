@@ -405,6 +405,23 @@ const TotalValorVistorias = ({ vistorias }) => {
   );
 };
 
+// Calcula remuneração usando o valor unitário congelado na vistoria (ou o atual do vistoriador)
+const calcularRemuneracaoVistoria = async (vistoria) => {
+  let valorUnitario = 0;
+
+  if (vistoria.valor_unitario_vistoriador && vistoria.valor_unitario_vistoriador > 0) {
+    valorUnitario = parseFloat(vistoria.valor_unitario_vistoriador);
+  } else if (vistoria.vistoriador_id) {
+    const result = await vistoriadoresService.obterValorUnitarioCredito(vistoria.vistoriador_id);
+    if (result.success) {
+      valorUnitario = result.data;
+    }
+  }
+
+  const consumo = parseFloat(vistoria.consumo_calculado) || 0;
+  return valorUnitario * consumo;
+};
+
 // 🆕 Componente para exibir valor da remuneração do vistoriador
 const ValorRemuneracaoVistoriador = ({ vistoria }) => {
   const [valorRemuneracao, setValorRemuneracao] = useState(null);
@@ -414,26 +431,7 @@ const ValorRemuneracaoVistoriador = ({ vistoria }) => {
     const calcularRemuneracao = async () => {
       try {
         setLoading(true);
-        
-        let valorUnitario = 0;
-        
-        // Se a vistoria já tem valor_unitario_vistoriador salvo, usar esse valor (histórico congelado)
-        if (vistoria.valor_unitario_vistoriador && vistoria.valor_unitario_vistoriador > 0) {
-          valorUnitario = parseFloat(vistoria.valor_unitario_vistoriador);
-        } else {
-          // Para vistorias antigas sem valor_unitario_vistoriador, buscar o valor atual do vistoriador
-          if (vistoria.vistoriador_id) {
-            const result = await vistoriadoresService.obterValorUnitarioCredito(vistoria.vistoriador_id);
-            if (result.success) {
-              valorUnitario = result.data;
-            }
-          }
-        }
-        
-        const consumo = parseFloat(vistoria.consumo_calculado) || 0;
-        const remuneracao = valorUnitario * consumo;
-        
-        setValorRemuneracao(remuneracao);
+        setValorRemuneracao(await calcularRemuneracaoVistoria(vistoria));
       } catch (error) {
         console.error('Erro ao calcular remuneração:', error);
         setValorRemuneracao(0);
@@ -1426,7 +1424,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     }
   };
 
-  // 📄 Função para gerar relatório em IMAGEM (formato A4)
+  // 📄 Função para gerar relatório em IMAGEM (formato A4 multipágina)
   const handleGerarRelatorio = async (isVistoriadorView = false) => {
     if (vistoriasFiltradas.length === 0) {
       alert('Não há vistorias para gerar o relatório!');
@@ -1436,7 +1434,6 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
     try {
       setGerandoRelatorio(true);
 
-      // Configurações de formatação
       const formatDate = (dateString) => {
         const date = new Date(dateString + 'T00:00:00');
         return date.toLocaleDateString('pt-BR');
@@ -1449,86 +1446,138 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         }).format(value || 0);
       };
 
+      // Pré-calcular remunerações usando o valor unitário salvo em cada vistoria
+      const remuneracoesPorVistoria = {};
+      if (isVistoriadorView) {
+        for (const vistoria of vistoriasFiltradas) {
+          remuneracoesPorVistoria[vistoria.id] = await calcularRemuneracaoVistoria(vistoria);
+        }
+      }
+
       const calcularTotalGeral = () => {
         return vistoriasFiltradas.reduce((total, vistoria) => {
           if (isVistoriadorView) {
-            // Para vistoriador, calcular remuneração
-            const valorUnitario = 0.5; // Valor padrão
-            const consumo = parseFloat(vistoria.consumo_calculado) || 0;
-            return total + (valorUnitario * consumo);
-          } else {
-            // Para admin, valor monetário total
-            return total + (parseFloat(vistoria.valor_monetario) || 0);
+            return total + (remuneracoesPorVistoria[vistoria.id] || 0);
           }
+          return total + (parseFloat(vistoria.valor_monetario) || 0);
         }, 0);
       };
 
-      // Dimensões A4 em pixels (considerando 96 DPI)
-      // A4: 210mm x 297mm = 794px x 1123px (a 96 DPI)
+      // A4 a 96 DPI — cada imagem tem exatamente esta dimensão (fonte mantida)
       const A4_WIDTH_PX = 794;
       const A4_HEIGHT_PX = 1123;
       const MARGIN_PX = 40;
-      const CONTENT_WIDTH = A4_WIDTH_PX - (MARGIN_PX * 2);
-      const CONTENT_HEIGHT = A4_HEIGHT_PX - (MARGIN_PX * 2);
+      // Reserva realista: cabeçalho (~180) + thead (~32) + rodapé com total (~70)
+      const RESERVA_CABECALHO_E_RODAPE = 290;
+      const ALTURA_UTIL = A4_HEIGHT_PX - (MARGIN_PX * 2) - RESERVA_CABECALHO_E_RODAPE;
+      const ALTURA_LINHA_ESTIMADA = 32;
+      // Estimativa conservadora — nunca menos que 1 linha por página
+      const linhasPorPagina = Math.max(1, Math.floor(ALTURA_UTIL / ALTURA_LINHA_ESTIMADA));
 
-      // Criar elemento temporário para o relatório
-      const relatorioContainer = document.createElement('div');
-      relatorioContainer.id = 'relatorio-temporario';
-      relatorioContainer.style.cssText = `
-        position: absolute;
-        left: -9999px;
-        width: ${A4_WIDTH_PX}px;
-        background: white;
-        font-family: Arial, sans-serif;
-        color: #333;
-      `;
-
-      // Preparar dados da tabela
-      const tableColumns = isVistoriadorView 
+      const tableColumns = isVistoriadorView
         ? ['Código', 'Imobiliária', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Remuneração']
         : ['Código', 'Imobiliária', 'Vistoriador', 'Data', 'Tipo', 'Área', 'Status', 'Consumo', 'Endereço', 'Valor'];
 
-      // Calcular altura necessária por linha (aproximadamente 25px por linha)
-      const alturaLinha = 25;
-      const alturaCabecalho = 120; // Cabeçalho + informações
-      const alturaRodape = 50;
-      const alturaDisponivelPorPagina = CONTENT_HEIGHT - alturaCabecalho - alturaRodape;
-      const linhasPorPagina = Math.floor(alturaDisponivelPorPagina / alturaLinha);
-      
-      // Dividir vistorias em páginas
+      // Larguras %: Código/Área/Consumo compactas; Endereço ganhando espaço (soma = 100)
+      const colWidths = isVistoriadorView
+        ? {
+            'Código': '6%',
+            'Imobiliária': '14%',
+            'Data': '9%',
+            'Tipo': '10%',
+            'Área': '7%',
+            'Status': '10%',
+            'Consumo': '7%',
+            'Endereço': '25%',
+            'Remuneração': '12%'
+          }
+        : {
+            'Código': '5%',
+            'Imobiliária': '12%',
+            'Vistoriador': '9%',
+            'Data': '8%',
+            'Tipo': '9%',
+            'Área': '6%',
+            'Status': '9%',
+            'Consumo': '6%',
+            'Endereço': '24%',
+            'Valor': '12%'
+          };
+
+      const colunasCompactas = new Set(['Código', 'Área', 'Consumo']);
+      const colunasNumericas = new Set(['Código', 'Área', 'Consumo']);
+      const colunasValor = new Set(['Remuneração', 'Valor']);
+
+      // Paginar pelo conteúdo: N páginas = quantas forem necessárias
       const totalPaginas = Math.ceil(vistoriasFiltradas.length / linhasPorPagina);
       const agora = new Date();
       const dataHoraRelatorio = agora.toLocaleString('pt-BR');
       const timestamp = agora.toISOString().slice(0, 19).replace(/:/g, '-');
       const tipoRelatorio = isVistoriadorView ? 'remuneracao' : 'vistorias';
 
-      // Gerar cada página
+      const montarCelulas = (vistoria) => {
+        // Mais espaço na coluna Endereço → permite texto mais longo antes do "…"
+        const endereco = vistoria.endereco && vistoria.endereco.length > 55
+          ? vistoria.endereco.substring(0, 55) + '...'
+          : vistoria.endereco || 'N/A';
+        const nomeVist = vistoria.vistoriadores?.nome || 'N/A';
+        const partesNome = nomeVist.split(' ');
+
+        return [
+          vistoria.codigo,
+          vistoria.imobiliarias?.nome || 'N/A',
+          ...(isVistoriadorView ? [] : [`${partesNome[0]} ${partesNome[1] || ''}`.trim()]),
+          formatDate(vistoria.data_vistoria),
+          vistoria.tipos_imoveis?.nome || 'N/A',
+          `${vistoria.area_imovel}m²`,
+          vistoria.tipos_mobilia?.nome || 'N/A',
+          parseFloat(vistoria.consumo_calculado).toFixed(1),
+          endereco,
+          isVistoriadorView
+            ? formatCurrency(remuneracoesPorVistoria[vistoria.id] || 0)
+            : formatCurrency(vistoria.valor_monetario)
+        ];
+      };
+
+      const relatorioContainer = document.createElement('div');
+      relatorioContainer.id = 'relatorio-temporario';
+      relatorioContainer.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        width: ${A4_WIDTH_PX}px;
+        background: white;
+        font-family: Arial, sans-serif;
+        color: #333;
+      `;
+
       for (let pagina = 0; pagina < totalPaginas; pagina++) {
         const inicio = pagina * linhasPorPagina;
         const fim = Math.min(inicio + linhasPorPagina, vistoriasFiltradas.length);
         const vistoriasPagina = vistoriasFiltradas.slice(inicio, fim);
+        const isUltimaPagina = pagina === totalPaginas - 1;
 
         const paginaDiv = document.createElement('div');
+        // Folha A4 fixa; conteúdo empilha do topo — sem esticar a tabela
         paginaDiv.style.cssText = `
           width: ${A4_WIDTH_PX}px;
-          min-height: ${A4_HEIGHT_PX}px;
+          height: ${A4_HEIGHT_PX}px;
           padding: ${MARGIN_PX}px;
           box-sizing: border-box;
-          page-break-after: always;
           background: white;
+          overflow: hidden;
         `;
 
-        // Cabeçalho
         const cabecalho = document.createElement('div');
         cabecalho.style.cssText = `
           text-align: center;
-          margin-bottom: 30px;
+          margin-bottom: 16px;
           border-bottom: 2px solid #0d6efd;
-          padding-bottom: 15px;
+          padding-bottom: 12px;
         `;
         cabecalho.innerHTML = `
-          <h1 style="color: #0d6efd; font-size: 24px; margin: 0 0 10px 0;">Controle de Vistorias</h1>
-          <h2 style="color: #333; font-size: 18px; margin: 0 0 20px 0;">
+          <h1 style="color: #0d6efd; font-size: 22px; margin: 0 0 8px 0;">Controle de Vistorias</h1>
+          <h2 style="color: #333; font-size: 16px; margin: 0 0 12px 0;">
             ${isVistoriadorView ? 'Relatório de Remuneração - Vistoriador' : 'Relatório de Vistorias - Administração'}
           </h2>
           <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666;">
@@ -1536,7 +1585,7 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
               <div><strong>Usuário:</strong> ${usuarioLogado?.nome || 'N/A'}</div>
               <div><strong>Data/Hora:</strong> ${dataHoraRelatorio}</div>
               <div><strong>Total de registros:</strong> ${vistoriasFiltradas.length}</div>
-              ${totalPaginas > 1 ? `<div><strong>Página:</strong> ${pagina + 1} de ${totalPaginas}</div>` : ''}
+              <div><strong>Página:</strong> ${pagina + 1} de ${totalPaginas}</div>
             </div>
             <div style="text-align: right;">
               ${(filtroTexto || dataInicio || dataFim || vistoriadorFiltro) ? `
@@ -1551,16 +1600,15 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         `;
         paginaDiv.appendChild(cabecalho);
 
-        // Tabela
+        // Tabela só com a altura do conteúdo (não preenche a folha)
         const tabela = document.createElement('table');
         tabela.style.cssText = `
           width: 100%;
           border-collapse: collapse;
           font-size: 10px;
-          margin-bottom: 20px;
+          table-layout: fixed;
         `;
 
-        // Cabeçalho da tabela
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
         headerRow.style.cssText = 'background-color: #0d6efd; color: white;';
@@ -1568,64 +1616,44 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
           const th = document.createElement('th');
           th.textContent = col;
           th.style.cssText = `
-            padding: 8px 4px;
+            width: ${colWidths[col]};
+            padding: ${colunasCompactas.has(col) ? '8px 2px' : '8px 4px'};
             text-align: left;
             border: 1px solid #ddd;
             font-weight: bold;
+            ${colunasCompactas.has(col) ? 'white-space: nowrap;' : ''}
+            ${col === 'Endereço' ? 'word-break: break-word;' : ''}
           `;
-          if (col === 'Código' || col === 'Área' || col === 'Consumo') {
-            th.style.textAlign = 'center';
-          }
-          if (col === 'Remuneração' || col === 'Valor') {
-            th.style.textAlign = 'right';
-          }
+          if (colunasNumericas.has(col)) th.style.textAlign = 'center';
+          if (colunasValor.has(col)) th.style.textAlign = 'right';
           headerRow.appendChild(th);
         });
         thead.appendChild(headerRow);
         tabela.appendChild(thead);
 
-        // Corpo da tabela
         const tbody = document.createElement('tbody');
         vistoriasPagina.forEach((vistoria, index) => {
           const tr = document.createElement('tr');
           tr.style.cssText = index % 2 === 0 ? 'background-color: #f8f9fa;' : 'background-color: white;';
-          
-          const endereco = vistoria.endereco && vistoria.endereco.length > 40 
-            ? vistoria.endereco.substring(0, 40) + '...' 
-            : vistoria.endereco || 'N/A';
 
-          const cells = [
-            vistoria.codigo,
-            vistoria.imobiliarias?.nome || 'N/A',
-            ...(isVistoriadorView ? [] : [vistoria.vistoriadores?.nome?.split(' ')[0] + ' ' + (vistoria.vistoriadores?.nome?.split(' ')[1] || '') || 'N/A']),
-            formatDate(vistoria.data_vistoria),
-            vistoria.tipos_imoveis?.nome || 'N/A',
-            `${vistoria.area_imovel}m²`,
-            vistoria.tipos_mobilia?.nome || 'N/A',
-            parseFloat(vistoria.consumo_calculado).toFixed(1),
-            endereco,
-            isVistoriadorView 
-              ? formatCurrency(0.5 * parseFloat(vistoria.consumo_calculado))
-              : formatCurrency(vistoria.valor_monetario)
-          ];
-
-          cells.forEach((cell, cellIndex) => {
+          montarCelulas(vistoria).forEach((cell, cellIndex) => {
+            const colunaAtual = tableColumns[cellIndex];
             const td = document.createElement('td');
             td.textContent = cell;
             td.style.cssText = `
-              padding: 6px 4px;
+              width: ${colWidths[colunaAtual]};
+              padding: ${colunasCompactas.has(colunaAtual) ? '6px 2px' : '6px 4px'};
               border: 1px solid #ddd;
               font-size: 9px;
+              ${colunasCompactas.has(colunaAtual) ? 'white-space: nowrap;' : ''}
+              ${colunaAtual === 'Endereço' ? 'word-break: break-word; line-height: 1.35;' : ''}
             `;
-            
-            // Alinhamento baseado na coluna real
-            const colunaAtual = tableColumns[cellIndex];
-            if (colunaAtual === 'Código' || colunaAtual === 'Área' || colunaAtual === 'Consumo') {
+            if (colunasNumericas.has(colunaAtual)) {
               td.style.textAlign = 'center';
-            } else if (colunaAtual === 'Remuneração' || colunaAtual === 'Valor') {
+            } else if (colunasValor.has(colunaAtual)) {
               td.style.textAlign = 'right';
+              td.style.whiteSpace = 'nowrap';
             }
-            
             tr.appendChild(td);
           });
           tbody.appendChild(tr);
@@ -1633,61 +1661,76 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
         tabela.appendChild(tbody);
         paginaDiv.appendChild(tabela);
 
-        // Rodapé e total (apenas na última página)
-        if (pagina === totalPaginas - 1) {
-          const rodape = document.createElement('div');
-          rodape.style.cssText = `
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 2px solid #0d6efd;
+        if (isUltimaPagina) {
+          // Resumo fechado logo abaixo da tabela — visual de documento formal
+          const resumo = document.createElement('div');
+          resumo.style.cssText = `
+            margin-top: 18px;
+            padding: 14px 16px;
+            border: 1px solid #cfe2ff;
+            border-left: 4px solid #0d6efd;
+            background: #f8fbff;
+            border-radius: 4px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 16px;
           `;
-          rodape.innerHTML = `
-            <div style="font-size: 9px; color: #666;">
-              Relatório gerado automaticamente pelo Sistema de Controle de Vistorias<br>
-              © ${new Date().getFullYear()} - Todos os direitos reservados
+          resumo.innerHTML = `
+            <div style="font-size: 10px; color: #555; line-height: 1.45;">
+              <div style="font-weight: 600; color: #333; margin-bottom: 2px;">Encerramento do relatório</div>
+              <div>${vistoriasFiltradas.length} registro(s) · ${totalPaginas} página(s)</div>
+              <div style="color: #888; margin-top: 4px;">Gerado em ${dataHoraRelatorio}</div>
             </div>
-            <div style="font-size: 14px; color: #0d6efd; font-weight: bold; text-align: right;">
-              ${isVistoriadorView ? 'Total de Remuneração: ' : 'Total Geral: '}
-              ${formatCurrency(calcularTotalGeral())}
+            <div style="text-align: right; white-space: nowrap;">
+              <div style="font-size: 10px; color: #666; margin-bottom: 4px;">
+                ${isVistoriadorView ? 'Total de Remuneração' : 'Total Geral'}
+              </div>
+              <div style="font-size: 18px; color: #0d6efd; font-weight: 700; letter-spacing: -0.02em;">
+                ${formatCurrency(calcularTotalGeral())}
+              </div>
             </div>
           `;
-          paginaDiv.appendChild(rodape);
-        } else {
-          const rodape = document.createElement('div');
-          rodape.style.cssText = `
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 1px solid #ddd;
+          paginaDiv.appendChild(resumo);
+
+          const credito = document.createElement('div');
+          credito.style.cssText = `
+            margin-top: 14px;
             font-size: 9px;
-            color: #666;
-            text-align: center;
+            color: #999;
+            text-align: left;
           `;
-          rodape.innerHTML = `
-            Relatório gerado automaticamente pelo Sistema de Controle de Vistorias<br>
-            © ${new Date().getFullYear()} - Todos os direitos reservados
+          credito.innerHTML = `
+            Sistema de Controle de Vistorias · © ${new Date().getFullYear()}
           `;
-          paginaDiv.appendChild(rodape);
+          paginaDiv.appendChild(credito);
+        } else {
+          const continua = document.createElement('div');
+          continua.style.cssText = `
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px dashed #ccc;
+            font-size: 9px;
+            color: #888;
+            text-align: right;
+          `;
+          continua.textContent = `Continua na página ${pagina + 2} de ${totalPaginas} →`;
+          paginaDiv.appendChild(continua);
         }
 
         relatorioContainer.appendChild(paginaDiv);
       }
 
       document.body.appendChild(relatorioContainer);
+      await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Aguardar renderização
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Capturar cada página como imagem
+      // Capturar cada página A4 como PNG independente
       const imagens = [];
       for (let i = 0; i < totalPaginas; i++) {
         const paginaDiv = relatorioContainer.children[i];
-        
         const canvas = await html2canvas(paginaDiv, {
           backgroundColor: '#ffffff',
-          scale: 2, // Alta resolução
+          scale: 2,
           useCORS: true,
           allowTaint: true,
           logging: false,
@@ -1696,18 +1739,14 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
           windowWidth: A4_WIDTH_PX,
           windowHeight: A4_HEIGHT_PX
         });
-
         imagens.push(canvas);
       }
 
-      // Remover elemento temporário
       document.body.removeChild(relatorioContainer);
 
-      // Baixar imagens
-      if (totalPaginas === 1) {
-        // Uma única página - baixar diretamente
-        const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}.png`;
-        imagens[0].toBlob((blob) => {
+      // Helper: download sequencial (navegador bloqueia cliques simultâneos)
+      const baixarCanvas = (canvas, nomeArquivo) => new Promise((resolve) => {
+        canvas.toBlob((blob) => {
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
@@ -1715,37 +1754,33 @@ const Dashboard = ({ deslogar, usuarioLogado }) => {
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-        }, 'image/png', 0.95);
-        
-        setSuccessMessage(`Relatório em imagem gerado e baixado com sucesso: ${nomeArquivo}`);
-      } else {
-        // Múltiplas páginas - baixar todas
-        for (let i = 0; i < imagens.length; i++) {
-          const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}-pagina${i + 1}.png`;
-          imagens[i].toBlob((blob) => {
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = nomeArquivo;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+          setTimeout(() => {
             URL.revokeObjectURL(url);
-          }, 'image/png', 0.95);
-        }
-        
-        setSuccessMessage(`Relatório em imagem gerado com ${totalPaginas} páginas e baixado com sucesso!`);
+            resolve();
+          }, 400);
+        }, 'image/png', 0.95);
+      });
+
+      for (let i = 0; i < imagens.length; i++) {
+        const sufixo = totalPaginas === 1
+          ? ''
+          : `-pagina${i + 1}`;
+        const nomeArquivo = `relatorio-${tipoRelatorio}-${timestamp}${sufixo}.png`;
+        await baixarCanvas(imagens[i], nomeArquivo);
       }
-      
-      setTimeout(() => setSuccessMessage(''), 5000);
+
+      setSuccessMessage(
+        totalPaginas === 1
+          ? `Relatório gerado: 1 imagem A4`
+          : `Relatório gerado: ${totalPaginas} imagens A4 (páginas 1–${totalPaginas})`
+      );
+      setTimeout(() => setSuccessMessage(''), 6000);
 
     } catch (error) {
       console.error('Erro ao gerar relatório em imagem:', error);
       setErrorMessage('Erro ao gerar relatório em imagem. Tente novamente.');
       setTimeout(() => setErrorMessage(''), 5000);
-      
-      // Limpar elemento temporário em caso de erro
+
       const elemento = document.getElementById('relatorio-temporario');
       if (elemento) {
         document.body.removeChild(elemento);
